@@ -1,6 +1,14 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from typing import Optional
 from datetime import datetime
+
+
+def _utc(dt: Optional[datetime]) -> Optional[str]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.isoformat() + "Z"
+    return dt.isoformat()
 
 
 class ScriptBase(BaseModel):
@@ -48,6 +56,10 @@ class ScriptResponse(ScriptBase):
     class Config:
         from_attributes = True
 
+    @field_serializer("created_at", "updated_at", "last_run_at")
+    def serialize_dt(self, v: Optional[datetime]) -> Optional[str]:
+        return _utc(v)
+
 
 class ScriptListResponse(BaseModel):
     id: int
@@ -62,3 +74,7 @@ class ScriptListResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @field_serializer("created_at", "last_run_at")
+    def serialize_dt(self, v: Optional[datetime]) -> Optional[str]:
+        return _utc(v)

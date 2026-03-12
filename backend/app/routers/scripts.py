@@ -140,12 +140,28 @@ async def run_script_now(
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
 
+    # If no parameters provided, fall back to defaults from parameters_schema
+    effective_params = body
+    if not effective_params and script.parameters_schema:
+        try:
+            schema = json.loads(script.parameters_schema)
+            if isinstance(schema, list):
+                defaults = {
+                    p["name"]: p["default"]
+                    for p in schema
+                    if p.get("name") and p.get("default") not in (None, "")
+                }
+                if defaults:
+                    effective_params = defaults
+        except Exception:
+            pass
+
     run = ScriptRun(
         script_id=script.id,
         status="pending",
         triggered_by="manual",
         attempt_number=1,
-        parameters=json.dumps(body) if body else None,
+        parameters=json.dumps(effective_params) if effective_params else None,
     )
     session.add(run)
     await session.flush()
