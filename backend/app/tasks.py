@@ -66,7 +66,7 @@ def execute_script(self: Task, script_id: int, run_id: int):
                 tmp_req = f.name
 
             pip_result = subprocess.run(
-                ["pip", "install", "-r", tmp_req],
+                ["pip", "install", "--index-url", "https://pypi.org/simple/", "-r", tmp_req],
                 capture_output=True,
                 text=True,
                 timeout=300,
