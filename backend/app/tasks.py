@@ -23,7 +23,7 @@ def get_sync_session():
 
 
 @celery_app.task(bind=True, name="app.tasks.execute_script")
-def execute_script(self: Task, script_id: int, run_id: int):
+def execute_script(self: Task, script_id: int, run_id: int = None):
     from app.models import Script, ScriptRun, RunLog, AppSetting
 
     session = get_sync_session()
@@ -31,13 +31,30 @@ def execute_script(self: Task, script_id: int, run_id: int):
     tmp_req = None
 
     try:
-        # 1. Load script and run from DB
+        # 1. Load script from DB
         script = session.get(Script, script_id)
-        run = session.get(ScriptRun, run_id)
-
-        if not script or not run:
-            logger.error("Script or run not found", script_id=script_id, run_id=run_id)
+        if not script:
+            logger.error("Script not found", script_id=script_id)
             return
+
+        # If called from beat scheduler without a run_id, create a new run
+        if run_id is None:
+            run = ScriptRun(
+                script_id=script.id,
+                status="pending",
+                triggered_by="scheduled",
+                attempt_number=1,
+                celery_task_id=self.request.id,
+            )
+            session.add(run)
+            session.commit()
+            session.refresh(run)
+            run_id = run.id
+        else:
+            run = session.get(ScriptRun, run_id)
+            if not run:
+                logger.error("Run not found", run_id=run_id)
+                return
 
         # 2. Update run status → running
         run.status = "running"

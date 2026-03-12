@@ -1,6 +1,14 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 from typing import Optional, List
 from datetime import datetime
+
+
+def _utc(dt: Optional[datetime]) -> Optional[str]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.isoformat() + "Z"
+    return dt.isoformat()
 
 
 class RunResponse(BaseModel):
@@ -20,6 +28,10 @@ class RunResponse(BaseModel):
     class Config:
         from_attributes = True
 
+    @field_serializer("created_at", "started_at", "finished_at")
+    def serialize_dt(self, v: Optional[datetime]) -> Optional[str]:
+        return _utc(v)
+
 
 class RunListResponse(BaseModel):
     items: List[RunResponse]
@@ -37,3 +49,7 @@ class LogLineResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @field_serializer("logged_at")
+    def serialize_dt(self, v: Optional[datetime]) -> Optional[str]:
+        return _utc(v)
