@@ -1,0 +1,94 @@
+version: '3.9'
+
+services:
+  oracle-db:
+    image: gvenzl/oracle-free:23-slim
+    environment:
+      ORACLE_PASSWORD: oracle_root_pass
+      APP_USER: scheduler
+      APP_USER_PASSWORD: scheduler_pass
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  backend:
+    build: ./backend
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      - ORACLE_HOST=oracle-db
+      - ORACLE_PORT=1521
+      - ORACLE_SERVICE_NAME=FREEPDB1
+      - ORACLE_USER=scheduler
+      - ORACLE_PASSWORD=scheduler_pass
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  celery-worker:
+    build: ./backend
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      - ORACLE_HOST=oracle-db
+      - ORACLE_PORT=1521
+      - ORACLE_SERVICE_NAME=FREEPDB1
+      - ORACLE_USER=scheduler
+      - ORACLE_PASSWORD=scheduler_pass
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+    command: celery -A app.celery_app worker --queues=high,normal,default --concurrency=2 --loglevel=info
+
+  celery-beat:
+    build: ./backend
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      - ORACLE_HOST=oracle-db
+      - ORACLE_PORT=1521
+      - ORACLE_SERVICE_NAME=FREEPDB1
+      - ORACLE_USER=scheduler
+      - ORACLE_PASSWORD=scheduler_pass
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./backend:/app
+    command: celery -A app.celery_app beat --loglevel=info
+
+  nginx:
+    image: nginx:1.25-alpine
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./frontend/dist:/usr/share/nginx/html
+
+volumes:
+  oracle_data:

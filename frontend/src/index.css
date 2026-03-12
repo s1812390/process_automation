@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    background-color: #F0F2F7;
+    color: #141929;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+@layer utilities {
+  .font-mono {
+    font-family: 'DM Mono', monospace;
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  .scrollbar-thumb-ink-2 {
+    scrollbar-color: #3D4560 transparent;
+  }
+}
+
+/* Pulsing dot for running status */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* Animated background blobs */
+@keyframes blob-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -20px) scale(1.05); }
+  66% { transform: translate(-20px, 15px) scale(0.95); }
+}
+.blob-animate {
+  animation: blob-drift 12s ease-in-out infinite;
+}
+.blob-animate-delay {
+  animation: blob-drift 15s ease-in-out infinite reverse;
+  animation-delay: -5s;
+}
