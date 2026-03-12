@@ -71,7 +71,7 @@ export default function RunDetail() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Link
-              to={`/scripts/${run.script_id}`}
+              to={`/scripts/${run.script_id}?tab=history`}
               className="text-[12px] text-ink-3 hover:text-ink-2 flex items-center gap-1"
             >
               <ChevronLeft className="w-3.5 h-3.5" />

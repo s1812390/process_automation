@@ -13,6 +13,8 @@ export interface Script {
   cpu_cores?: number
   ram_limit_mb?: number
   is_active: boolean
+  webhook_token?: string
+  parameters_schema?: string
   created_at: string
   updated_at?: string
   last_run_status?: string
@@ -33,7 +35,7 @@ export interface ScriptCreate {
   is_active?: boolean
 }
 
-export type ScriptUpdate = Partial<ScriptCreate>
+export type ScriptUpdate = Partial<ScriptCreate & { parameters_schema: string }>
 
 export const scriptsApi = {
   list: () => client.get<Script[]>('/scripts').then(r => r.data),
@@ -42,9 +44,13 @@ export const scriptsApi = {
   update: (id: number, data: ScriptUpdate) => client.put<Script>(`/scripts/${id}`, data).then(r => r.data),
   delete: (id: number) => client.delete(`/scripts/${id}`),
   toggle: (id: number) => client.patch<Script>(`/scripts/${id}/toggle`).then(r => r.data),
-  run: (id: number) => client.post<{ run_id: number; task_id: string }>(`/scripts/${id}/run`).then(r => r.data),
+  regenerateWebhook: (id: number) =>
+    client.patch<Script>(`/scripts/${id}/regenerate-webhook`).then(r => r.data),
+  run: (id: number, parameters?: Record<string, string>) =>
+    client.post<{ run_id: number; task_id: string }>(`/scripts/${id}/run`, parameters || null).then(r => r.data),
   getAlerts: (id: number) => client.get<AlertConfig[]>(`/scripts/${id}/alerts`).then(r => r.data),
-  createAlert: (id: number, data: AlertConfigCreate) => client.post<AlertConfig>(`/scripts/${id}/alerts`, data).then(r => r.data),
+  createAlert: (id: number, data: AlertConfigCreate) =>
+    client.post<AlertConfig>(`/scripts/${id}/alerts`, data).then(r => r.data),
 }
 
 export interface AlertConfig {

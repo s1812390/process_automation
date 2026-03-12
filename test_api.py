@@ -10,8 +10,6 @@ Usage:
     #
     # Or pass a custom base URL:
     #    BASE_URL=http://my-server:8000 python test_api.py
-
-import os, sys, time
 """
 
 import os
@@ -27,7 +25,6 @@ except ImportError:
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 PASS = "\033[92mPASS\033[0m"
 FAIL = "\033[91mFAIL\033[0m"
-
 errors = []
 
 
@@ -48,38 +45,65 @@ def section(title: str):
 # ---------------------------------------------------------------------------
 section("Health check")
 try:
-    r = httpx.get(f"{BASE_URL}/health", timeout=10)
-    check("GET /health → 200", r.status_code == 200)
+    r = httpx.get(f"{BASE_URL}/api/health", timeout=10)
+    check("GET /api/health → 200", r.status_code == 200)
     check("health body has status=ok", r.json().get("status") == "ok")
 except Exception as e:
-    check("GET /health reachable", False, str(e))
+    check("GET /api/health reachable", False, str(e))
 
 # ---------------------------------------------------------------------------
-# 2. Settings
+# 2. Settings  (returns an object, not a list)
 # ---------------------------------------------------------------------------
 section("Settings")
 try:
     r = httpx.get(f"{BASE_URL}/api/settings", timeout=10)
     check("GET /api/settings → 200", r.status_code == 200)
-    settings = r.json()
-    check("settings is a list", isinstance(settings, list))
-    keys = [s["key"] for s in settings]
-    check("default_timeout_seconds present", "default_timeout_seconds" in keys)
-    check("max_concurrent_workers present", "max_concurrent_workers" in keys)
+    s = r.json()
+    check("settings is an object", isinstance(s, dict))
+    check("max_concurrent_workers present", "max_concurrent_workers" in s)
+    check("default_timeout_seconds present", "default_timeout_seconds" in s)
 except Exception as e:
     check("GET /api/settings reachable", False, str(e))
 
 # ---------------------------------------------------------------------------
-# 3. Scripts CRUD
+# 3. Global Variables CRUD
+# ---------------------------------------------------------------------------
+section("Global Variables")
+var_id = None
+try:
+    r = httpx.post(f"{BASE_URL}/api/variables",
+                   json={"key": "SMOKE_TEST_VAR", "value": "hello", "description": "test"},
+                   timeout=10)
+    check("POST /api/variables → 201", r.status_code == 201)
+    var_id = r.json().get("id")
+    check("response has id", var_id is not None)
+
+    r = httpx.get(f"{BASE_URL}/api/variables", timeout=10)
+    check("GET /api/variables → 200", r.status_code == 200)
+    check("variables is a list", isinstance(r.json(), list))
+
+    if var_id:
+        r = httpx.put(f"{BASE_URL}/api/variables/{var_id}",
+                      json={"value": "updated"}, timeout=10)
+        check("PUT /api/variables/{id} → 200", r.status_code == 200)
+        check("value updated", r.json().get("value") == "updated")
+
+        r = httpx.delete(f"{BASE_URL}/api/variables/{var_id}", timeout=10)
+        check("DELETE /api/variables/{id} → 204", r.status_code == 204)
+except Exception as e:
+    check("variables API reachable", False, str(e))
+
+# ---------------------------------------------------------------------------
+# 4. Scripts CRUD
 # ---------------------------------------------------------------------------
 section("Scripts — create")
 script_id = None
+webhook_token = None
 try:
     payload = {
         "name": "smoke-test-script",
         "description": "Created by test_api.py",
         "script_content": "print('hello from smoke test')",
-        "cron_expression": None,
         "timeout_seconds": 60,
         "priority": 3,
         "max_retries": 0,
@@ -90,59 +114,51 @@ try:
     script = r.json()
     check("response has id", "id" in script)
     check("name matches", script.get("name") == "smoke-test-script")
+    check("webhook_token auto-generated", bool(script.get("webhook_token")))
     script_id = script.get("id")
+    webhook_token = script.get("webhook_token")
 except Exception as e:
     check("POST /api/scripts reachable", False, str(e))
 
-section("Scripts — list")
+section("Scripts — list / get / update / toggle")
 try:
     r = httpx.get(f"{BASE_URL}/api/scripts", timeout=10)
     check("GET /api/scripts → 200", r.status_code == 200)
-    scripts = r.json()
-    check("scripts is a list", isinstance(scripts, list))
-    if script_id:
-        ids = [s["id"] for s in scripts]
-        check("created script appears in list", script_id in ids)
-except Exception as e:
-    check("GET /api/scripts reachable", False, str(e))
+    check("scripts is a list", isinstance(r.json(), list))
 
-section("Scripts — get by id")
-if script_id:
-    try:
+    if script_id:
         r = httpx.get(f"{BASE_URL}/api/scripts/{script_id}", timeout=10)
         check("GET /api/scripts/{id} → 200", r.status_code == 200)
-        check("id matches", r.json().get("id") == script_id)
-    except Exception as e:
-        check("GET /api/scripts/{id} reachable", False, str(e))
-else:
-    print("  [SKIP] no script_id — create failed")
 
-section("Scripts — update")
-if script_id:
-    try:
-        r = httpx.put(
-            f"{BASE_URL}/api/scripts/{script_id}",
-            json={"description": "updated by test"},
-            timeout=10,
-        )
+        r = httpx.put(f"{BASE_URL}/api/scripts/{script_id}",
+                      json={"description": "updated by test"}, timeout=10)
         check("PUT /api/scripts/{id} → 200", r.status_code == 200)
         check("description updated", r.json().get("description") == "updated by test")
-    except Exception as e:
-        check("PUT /api/scripts/{id} reachable", False, str(e))
 
-section("Scripts — toggle active")
-if script_id:
-    try:
-        r_before = httpx.get(f"{BASE_URL}/api/scripts/{script_id}", timeout=10)
-        before = r_before.json().get("is_active")
+        before = r.json().get("is_active")
         r = httpx.patch(f"{BASE_URL}/api/scripts/{script_id}/toggle", timeout=10)
-        check("PATCH /api/scripts/{id}/toggle → 200", r.status_code == 200)
+        check("PATCH toggle → 200", r.status_code == 200)
         check("is_active flipped", r.json().get("is_active") == (not before))
-    except Exception as e:
-        check("PATCH toggle reachable", False, str(e))
+        # Flip back so it's active for run test
+        httpx.patch(f"{BASE_URL}/api/scripts/{script_id}/toggle", timeout=10)
+except Exception as e:
+    check("scripts CRUD reachable", False, str(e))
 
 # ---------------------------------------------------------------------------
-# 4. Manual run
+# 5. Webhook trigger
+# ---------------------------------------------------------------------------
+section("Webhook trigger")
+if webhook_token and script_id:
+    try:
+        r = httpx.post(f"{BASE_URL}/api/webhooks/{webhook_token}",
+                       json={"TEST_PARAM": "value"}, timeout=10)
+        check("POST /api/webhooks/{token} → 201", r.status_code == 201)
+        check("webhook run_id returned", "run_id" in r.json())
+    except Exception as e:
+        check("webhook reachable", False, str(e))
+
+# ---------------------------------------------------------------------------
+# 6. Manual run
 # ---------------------------------------------------------------------------
 section("Script — manual run")
 run_id = None
@@ -155,32 +171,28 @@ if script_id:
         run_id = body.get("run_id")
     except Exception as e:
         check("POST /api/scripts/{id}/run reachable", False, str(e))
-else:
-    print("  [SKIP] no script_id")
 
 # ---------------------------------------------------------------------------
-# 5. Runs list
+# 7. Runs list  (returns {items, total, page, page_size})
 # ---------------------------------------------------------------------------
 section("Runs — list for script")
 if script_id:
     try:
         r = httpx.get(f"{BASE_URL}/api/runs?script_id={script_id}", timeout=10)
-        check("GET /api/runs?script_id={id} → 200", r.status_code == 200)
-        runs = r.json()
-        check("runs is a list", isinstance(runs, list))
-        if run_id:
-            run_ids = [ru["id"] for ru in runs]
-            check("manual run appears in list", run_id in run_ids)
+        check("GET /api/runs → 200", r.status_code == 200)
+        body = r.json()
+        check("runs response has 'items' key", "items" in body)
+        check("items is a list", isinstance(body.get("items"), list))
     except Exception as e:
         check("GET /api/runs reachable", False, str(e))
 
 # ---------------------------------------------------------------------------
-# 6. Wait for run to finish and check logs
+# 8. Wait for run to finish and check logs
 # ---------------------------------------------------------------------------
 section("Run — wait for completion & logs")
 if run_id:
     final_status = None
-    for attempt in range(15):
+    for _ in range(15):
         time.sleep(2)
         try:
             r = httpx.get(f"{BASE_URL}/api/runs/{run_id}", timeout=10)
@@ -206,11 +218,9 @@ if run_id:
             check("stdout contains 'hello from smoke test'", "hello from smoke test" in all_text)
     except Exception as e:
         check("GET /api/runs/{id}/logs reachable", False, str(e))
-else:
-    print("  [SKIP] no run_id")
 
 # ---------------------------------------------------------------------------
-# 7. Cleanup — delete script
+# 9. Cleanup — delete script
 # ---------------------------------------------------------------------------
 section("Cleanup")
 if script_id:

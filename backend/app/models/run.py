@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -17,6 +17,7 @@ class ScriptRun(Base):
     attempt_number = Column(Integer, default=1)
     celery_task_id = Column(String(255))
     worker_pid = Column(Integer)
+    parameters = Column(Text)
     created_at = Column(DateTime, server_default=func.current_timestamp())
 
     script = relationship("Script", back_populates="runs")

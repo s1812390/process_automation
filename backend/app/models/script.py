@@ -19,6 +19,8 @@ class Script(Base):
     cpu_cores = Column(Integer)
     ram_limit_mb = Column(Integer)
     is_active = Column(Boolean, default=True)
+    webhook_token = Column(String(64), unique=True)
+    parameters_schema = Column(Text)
     created_at = Column(DateTime, server_default=func.current_timestamp())
     updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
 

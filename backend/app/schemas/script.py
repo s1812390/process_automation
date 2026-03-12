@@ -15,6 +15,7 @@ class ScriptBase(BaseModel):
     cpu_cores: Optional[int] = Field(None, gt=0)
     ram_limit_mb: Optional[int] = Field(None, gt=0)
     is_active: bool = True
+    parameters_schema: Optional[str] = None
 
 
 class ScriptCreate(ScriptBase):
@@ -33,10 +34,12 @@ class ScriptUpdate(BaseModel):
     cpu_cores: Optional[int] = Field(None, gt=0)
     ram_limit_mb: Optional[int] = Field(None, gt=0)
     is_active: Optional[bool] = None
+    parameters_schema: Optional[str] = None
 
 
 class ScriptResponse(ScriptBase):
     id: int
+    webhook_token: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     last_run_status: Optional[str] = None

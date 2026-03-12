@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
   '/scripts': 'Scripts',
+  '/variables': 'Global Variables',
   '/settings': 'Settings',
 }
 

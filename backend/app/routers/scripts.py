@@ -1,3 +1,5 @@
+import json
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
@@ -7,12 +9,16 @@ from datetime import datetime, timezone
 from app.database import get_db
 from app.models import Script, ScriptRun
 from app.schemas.script import ScriptCreate, ScriptUpdate, ScriptResponse, ScriptListResponse
+from app.celery_app import get_queue_name
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"])
 
 
+def _gen_token() -> str:
+    return uuid.uuid4().hex
+
+
 async def _enrich_script(script: Script, session: AsyncSession) -> dict:
-    """Get last run info for a script."""
     last_run = await session.execute(
         select(ScriptRun)
         .where(ScriptRun.script_id == script.id)
@@ -20,7 +26,7 @@ async def _enrich_script(script: Script, session: AsyncSession) -> dict:
         .limit(1)
     )
     last_run = last_run.scalar_one_or_none()
-    data = {
+    return {
         "id": script.id,
         "name": script.name,
         "description": script.description,
@@ -33,12 +39,13 @@ async def _enrich_script(script: Script, session: AsyncSession) -> dict:
         "cpu_cores": script.cpu_cores,
         "ram_limit_mb": script.ram_limit_mb,
         "is_active": script.is_active,
+        "webhook_token": script.webhook_token,
+        "parameters_schema": script.parameters_schema,
         "created_at": script.created_at,
         "updated_at": script.updated_at,
         "last_run_status": last_run.status if last_run else None,
         "last_run_at": last_run.created_at if last_run else None,
     }
-    return data
 
 
 @router.get("", response_model=List[ScriptListResponse])
@@ -54,7 +61,7 @@ async def list_scripts(session: AsyncSession = Depends(get_db)):
 
 @router.post("", response_model=ScriptResponse, status_code=status.HTTP_201_CREATED)
 async def create_script(data: ScriptCreate, session: AsyncSession = Depends(get_db)):
-    script = Script(**data.model_dump())
+    script = Script(**data.model_dump(), webhook_token=_gen_token())
     session.add(script)
     await session.flush()
     await session.refresh(script)
@@ -108,10 +115,25 @@ async def toggle_script(script_id: int, session: AsyncSession = Depends(get_db))
     return ScriptResponse(**enriched)
 
 
+@router.patch("/{script_id}/regenerate-webhook", response_model=ScriptResponse)
+async def regenerate_webhook(script_id: int, session: AsyncSession = Depends(get_db)):
+    script = await session.get(Script, script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+    script.webhook_token = _gen_token()
+    script.updated_at = datetime.now(timezone.utc)
+    await session.flush()
+    await session.refresh(script)
+    enriched = await _enrich_script(script, session)
+    return ScriptResponse(**enriched)
+
+
 @router.post("/{script_id}/run", status_code=status.HTTP_201_CREATED)
-async def run_script_now(script_id: int, session: AsyncSession = Depends(get_db)):
-    from app.models import ScriptRun
-    from app.celery_app import get_queue_name
+async def run_script_now(
+    script_id: int,
+    session: AsyncSession = Depends(get_db),
+    body: Optional[dict] = None,
+):
     from app.tasks import execute_script
 
     script = await session.get(Script, script_id)
@@ -123,6 +145,7 @@ async def run_script_now(script_id: int, session: AsyncSession = Depends(get_db)
         status="pending",
         triggered_by="manual",
         attempt_number=1,
+        parameters=json.dumps(body) if body else None,
     )
     session.add(run)
     await session.flush()

@@ -6,6 +6,7 @@ import Scripts from './pages/Scripts'
 import ScriptDetail from './pages/ScriptDetail'
 import RunDetail from './pages/RunDetail'
 import SettingsPage from './pages/Settings'
+import VariablesPage from './pages/Variables'
 
 export default function App() {
   return (
@@ -37,6 +38,7 @@ export default function App() {
               <Route path="/scripts" element={<Scripts />} />
               <Route path="/scripts/:id" element={<ScriptDetail />} />
               <Route path="/runs/:id" element={<RunDetail />} />
+              <Route path="/variables" element={<VariablesPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </main>

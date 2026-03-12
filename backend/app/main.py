@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 import os
 
-from app.routers import scripts, runs, settings, alerts
+from app.routers import scripts, runs, settings, alerts, variables, webhooks
 
 logger = structlog.get_logger()
 
@@ -29,6 +29,8 @@ app.include_router(scripts.router)
 app.include_router(runs.router)
 app.include_router(settings.router)
 app.include_router(alerts.router)
+app.include_router(variables.router)
+app.include_router(webhooks.router)
 
 # Serve React SPA build if it exists
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")

@@ -87,7 +87,36 @@ def execute_script(self: Task, script_id: int, run_id: int):
             f.write(script.script_content)
             tmp_script = f.name
 
-        # 5. Build preexec_fn for resource limits
+        # 5. Build environment: inherit + global vars + run parameters
+        import json as _json
+        from app.models import GlobalVar
+
+        child_env = os.environ.copy()
+
+        # Inject global variables
+        global_vars = session.execute(
+            __import__("sqlalchemy").select(GlobalVar)
+        ).scalars().all()
+        for gv in global_vars:
+            child_env[gv.key] = gv.value or ""
+
+        # Inject run parameters as PARAM_<NAME>=value
+        if run.parameters:
+            try:
+                params = _json.loads(run.parameters)
+                if isinstance(params, dict):
+                    for k, v in params.items():
+                        child_env[f"PARAM_{k.upper()}"] = str(v)
+                    # Also write a JSON file for convenience
+                    with tempfile.NamedTemporaryFile(
+                        mode="w", suffix=".json", prefix=f"params_{run_id}_", delete=False
+                    ) as pf:
+                        _json.dump(params, pf)
+                        child_env["SCHED_PARAMS_FILE"] = pf.name
+            except Exception:
+                pass
+
+        # 6. Build preexec_fn for resource limits
         def preexec():
             if effective_cpu is not None:
                 try:
@@ -102,12 +131,13 @@ def execute_script(self: Task, script_id: int, run_id: int):
                 except (ImportError, OSError):
                     pass
 
-        # 6. Start subprocess
+        # 7. Start subprocess
         proc = subprocess.Popen(
             ["python", tmp_script],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=child_env,
             preexec_fn=preexec,
         )
 
