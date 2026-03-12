@@ -4,10 +4,10 @@ from app.database import Base
 
 
 class AlertConfig(Base):
-    __tablename__ = "alert_configs"
+    __tablename__ = "SH_ALERT_CONFIGS"
 
     id = Column(Integer, primary_key=True)
-    script_id = Column(Integer, ForeignKey("scripts.id", ondelete="CASCADE"), nullable=False)
+    script_id = Column(Integer, ForeignKey("SH_SCRIPTS.id", ondelete="CASCADE"), nullable=False)
     on_failure = Column(Boolean, default=True)
     on_success = Column(Boolean, default=False)
     on_timeout = Column(Boolean, default=True)

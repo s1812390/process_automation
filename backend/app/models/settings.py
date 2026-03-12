@@ -4,7 +4,7 @@ from app.database import Base
 
 
 class AppSetting(Base):
-    __tablename__ = "app_settings"
+    __tablename__ = "SH_APP_SETTINGS"
 
     key = Column(String(100), primary_key=True)
     value = Column(String(4000), nullable=False)

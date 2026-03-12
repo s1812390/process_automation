@@ -17,24 +17,24 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # app_settings
+    # SH_APP_SETTINGS
     op.create_table(
-        "app_settings",
+        "SH_APP_SETTINGS",
         sa.Column("key", sa.String(100), primary_key=True),
         sa.Column("value", sa.String(4000), nullable=False),
         sa.Column("updated_at", sa.DateTime, server_default=sa.text("SYSTIMESTAMP")),
     )
 
     # Insert default settings
-    op.execute("INSERT INTO app_settings (key, value) VALUES ('max_concurrent_workers', '2')")
-    op.execute("INSERT INTO app_settings (key, value) VALUES ('default_timeout_seconds', '3600')")
-    op.execute("INSERT INTO app_settings (key, value) VALUES ('default_max_retries', '0')")
-    op.execute("INSERT INTO app_settings (key, value) VALUES ('default_cpu_cores', '')")
-    op.execute("INSERT INTO app_settings (key, value) VALUES ('default_ram_limit_mb', '')")
+    op.execute("INSERT INTO SH_APP_SETTINGS (key, value) VALUES ('max_concurrent_workers', '2')")
+    op.execute("INSERT INTO SH_APP_SETTINGS (key, value) VALUES ('default_timeout_seconds', '3600')")
+    op.execute("INSERT INTO SH_APP_SETTINGS (key, value) VALUES ('default_max_retries', '0')")
+    op.execute("INSERT INTO SH_APP_SETTINGS (key, value) VALUES ('default_cpu_cores', '')")
+    op.execute("INSERT INTO SH_APP_SETTINGS (key, value) VALUES ('default_ram_limit_mb', '')")
 
-    # scripts
+    # SH_SCRIPTS
     op.create_table(
-        "scripts",
+        "SH_SCRIPTS",
         sa.Column("id", sa.Integer, sa.Identity(always=True), primary_key=True),
         sa.Column("name", sa.String(255), nullable=False),
         sa.Column("description", sa.Text),
@@ -51,11 +51,11 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime, server_default=sa.text("SYSTIMESTAMP")),
     )
 
-    # script_runs
+    # SH_SCRIPT_RUNS
     op.create_table(
-        "script_runs",
+        "SH_SCRIPT_RUNS",
         sa.Column("id", sa.Integer, sa.Identity(always=True), primary_key=True),
-        sa.Column("script_id", sa.Integer, sa.ForeignKey("scripts.id"), nullable=False),
+        sa.Column("script_id", sa.Integer, sa.ForeignKey("SH_SCRIPTS.id"), nullable=False),
         sa.Column("status", sa.String(20), server_default="pending"),
         sa.Column("triggered_by", sa.String(10), server_default="manual"),
         sa.Column("started_at", sa.DateTime),
@@ -67,21 +67,21 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime, server_default=sa.text("SYSTIMESTAMP")),
     )
 
-    # run_logs
+    # SH_RUN_LOGS
     op.create_table(
-        "run_logs",
+        "SH_RUN_LOGS",
         sa.Column("id", sa.Integer, sa.Identity(always=True), primary_key=True),
-        sa.Column("run_id", sa.Integer, sa.ForeignKey("script_runs.id"), nullable=False),
+        sa.Column("run_id", sa.Integer, sa.ForeignKey("SH_SCRIPT_RUNS.id"), nullable=False),
         sa.Column("logged_at", sa.DateTime, server_default=sa.text("SYSTIMESTAMP")),
         sa.Column("stream", sa.String(6), nullable=False),
         sa.Column("line_text", sa.Text, nullable=False),
     )
 
-    # alert_configs
+    # SH_ALERT_CONFIGS
     op.create_table(
-        "alert_configs",
+        "SH_ALERT_CONFIGS",
         sa.Column("id", sa.Integer, sa.Identity(always=True), primary_key=True),
-        sa.Column("script_id", sa.Integer, sa.ForeignKey("scripts.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("script_id", sa.Integer, sa.ForeignKey("SH_SCRIPTS.id", ondelete="CASCADE"), nullable=False),
         sa.Column("on_failure", sa.Boolean, server_default="1"),
         sa.Column("on_success", sa.Boolean, server_default="0"),
         sa.Column("on_timeout", sa.Boolean, server_default="1"),
@@ -91,8 +91,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("alert_configs")
-    op.drop_table("run_logs")
-    op.drop_table("script_runs")
-    op.drop_table("scripts")
-    op.drop_table("app_settings")
+    op.drop_table("SH_ALERT_CONFIGS")
+    op.drop_table("SH_RUN_LOGS")
+    op.drop_table("SH_SCRIPT_RUNS")
+    op.drop_table("SH_SCRIPTS")
+    op.drop_table("SH_APP_SETTINGS")

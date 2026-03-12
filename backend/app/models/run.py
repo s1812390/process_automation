@@ -5,10 +5,10 @@ from app.database import Base
 
 
 class ScriptRun(Base):
-    __tablename__ = "script_runs"
+    __tablename__ = "SH_SCRIPT_RUNS"
 
     id = Column(Integer, primary_key=True)
-    script_id = Column(Integer, ForeignKey("scripts.id"), nullable=False)
+    script_id = Column(Integer, ForeignKey("SH_SCRIPTS.id"), nullable=False)
     status = Column(String(20), default="pending")
     triggered_by = Column(String(10), default="manual")
     started_at = Column(DateTime)

@@ -5,10 +5,10 @@ from app.database import Base
 
 
 class RunLog(Base):
-    __tablename__ = "run_logs"
+    __tablename__ = "SH_RUN_LOGS"
 
     id = Column(Integer, primary_key=True)
-    run_id = Column(Integer, ForeignKey("script_runs.id"), nullable=False)
+    run_id = Column(Integer, ForeignKey("SH_SCRIPT_RUNS.id"), nullable=False)
     logged_at = Column(DateTime, server_default=func.current_timestamp())
     stream = Column(String(6), nullable=False)
     line_text = Column(Text, nullable=False)

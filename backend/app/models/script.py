@@ -5,7 +5,7 @@ from app.database import Base
 
 
 class Script(Base):
-    __tablename__ = "scripts"
+    __tablename__ = "SH_SCRIPTS"
 
     id = Column(Integer, primary_key=True)
     name = Column(String(255), nullable=False)
