@@ -21,7 +21,7 @@ def upgrade() -> None:
     op.create_table(
         "SH_APP_SETTINGS",
         sa.Column("key", sa.String(100), primary_key=True),
-        sa.Column("value", sa.String(4000), nullable=False),
+        sa.Column("value", sa.String(4000), nullable=True),
         sa.Column("updated_at", sa.DateTime, server_default=sa.text("SYSTIMESTAMP")),
     )
 
@@ -29,8 +29,8 @@ def upgrade() -> None:
     op.execute("INSERT INTO SH_APP_SETTINGS (key, value) VALUES ('max_concurrent_workers', '2')")
     op.execute("INSERT INTO SH_APP_SETTINGS (key, value) VALUES ('default_timeout_seconds', '3600')")
     op.execute("INSERT INTO SH_APP_SETTINGS (key, value) VALUES ('default_max_retries', '0')")
-    op.execute("INSERT INTO SH_APP_SETTINGS (key, value) VALUES ('default_cpu_cores', '')")
-    op.execute("INSERT INTO SH_APP_SETTINGS (key, value) VALUES ('default_ram_limit_mb', '')")
+    op.execute("INSERT INTO SH_APP_SETTINGS (key, value) VALUES ('default_cpu_cores', NULL)")
+    op.execute("INSERT INTO SH_APP_SETTINGS (key, value) VALUES ('default_ram_limit_mb', NULL)")
 
     # SH_SCRIPTS
     op.create_table(
