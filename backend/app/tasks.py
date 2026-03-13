@@ -110,6 +110,11 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 
         child_env = os.environ.copy()
 
+        # Inject configured timezone so datetime.now() in scripts returns local time
+        tz_setting = session.get(AppSetting, "timezone")
+        if tz_setting and tz_setting.value:
+            child_env["TZ"] = tz_setting.value
+
         # Inject global variables
         global_vars = session.execute(
             __import__("sqlalchemy").select(GlobalVar)
