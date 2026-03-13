@@ -19,7 +19,7 @@ class DatabaseScheduler(PersistentScheduler):
         super().__init__(*args, **kwargs)
 
     def setup_schedule(self):
-        self.install_default_entries(self.data)
+        super().setup_schedule()  # opens shelve file (self._store) + installs default entries
         self._update_from_db()
         self._db_last_update = time.monotonic()
 
