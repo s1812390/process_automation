@@ -9,7 +9,7 @@ Quick reference for Claude Code sessions on this project.
 A Python script scheduler with a React UI. Users create Python scripts, schedule them via cron, run them manually or via webhook, monitor logs in real time, and receive alerts on failure.
 
 **Stack:** FastAPI + Celery + Oracle DB + React + Vite
-**Docker services:** `backend`, `celery-worker`, `celery-beat`, `redis`, `nginx`
+**Docker services:** `backend`, `celery-worker`, `celery-beat`, `redis`, `frontend` (nginx, port 8080)
 **Docker logs:** capped at 20 MB × 5 files per service (configured in docker-compose.yml)
 
 ---
@@ -52,10 +52,12 @@ process_automation/
 │   │   ├── env.py
 │   │   └── versions/
 │   │       ├── 001_initial_schema.py   # All base tables (idempotent)
-│   │       └── 002_features.py         # webhook_token, parameters_schema, SH_GLOBAL_VARS
+│   │       ├── 002_features.py         # webhook_token, parameters_schema, SH_GLOBAL_VARS
+│   │       └── 003_tags.py             # tag column on SH_SCRIPTS
 │   ├── requirements.txt         # oracledb==2.3.0 (must be >=2.0)
 │   └── Dockerfile
 ├── frontend/
+│   ├── Dockerfile               # Multi-stage: node:20 build + nginx:1.25 serve
 │   └── src/
 │       ├── App.tsx              # Routes: / /scripts /scripts/:id /runs/:id /variables /settings
 │       ├── context/
@@ -154,7 +156,7 @@ api_key = os.environ["MY_API_KEY"]  # set in Global Variables page
 | PATCH | `/api/scripts/{id}/toggle` | Toggle is_active |
 | PATCH | `/api/scripts/{id}/regenerate-webhook` | New webhook token |
 | POST | `/api/scripts/{id}/run` | Manual run (optional JSON body = parameters) |
-| GET | `/api/runs` | List runs (paginated, `?script_id=&status=&date_from=&date_to=`) |
+| GET | `/api/runs` | List runs (paginated, `?script_id=&script_ids=&status=&date_from=&date_to=`) |
 | GET | `/api/runs/active` | Running/pending runs |
 | GET/DELETE | `/api/runs/{id}` | Get run / cancel |
 | GET | `/api/runs/{id}/logs` | All log lines |
@@ -245,8 +247,15 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE alembic_version'; EXCEPTION WHEN OTHERS THEN
 | `default_timeout_seconds` | `3600` | Таймаут скрипта по умолчанию |
 | `default_max_retries` | `0` | Кол-во повторных попыток |
 
+## Tags on Scripts
+
+`SH_SCRIPTS.tag` (VARCHAR2 100) — optional label set in ScriptDetail → Settings tab.
+- Scripts page groups scripts by tag with collapsible sections
+- Dashboard Recent Runs shows Tag column + tag filter pills (server-side filtering via `script_ids`)
+- `api/client.ts` has a `paramsSerializer` that serialises arrays as repeated params (`k=1&k=2`) for FastAPI compatibility
+
 ## Git Branch
 
-Development branch: `claude/fix-logs-page-KV66H`
+Development branch: `claude/refactor-structure-visual-RnEhT`
 
 Always push to this branch. Never push to main without explicit permission.
