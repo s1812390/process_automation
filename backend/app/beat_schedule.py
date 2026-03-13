@@ -74,7 +74,7 @@ class DatabaseScheduler(PersistentScheduler):
                     except Exception as e:
                         logger.warning("Invalid cron expression", script_id=script.id, error=str(e))
 
-                self.data.sync()
+                self.sync()
                 logger.info("Beat schedule updated", count=count)
             finally:
                 session.close()
@@ -84,7 +84,9 @@ class DatabaseScheduler(PersistentScheduler):
             logger.error("Failed to update beat schedule from DB", error=str(e))
 
     def _parse_cron(self, expr: str) -> crontab:
-        parts = expr.strip().split()
+        # Normalize: collapse whitespace
+        normalized = ' '.join(expr.strip().split())
+        parts = normalized.split()
         if len(parts) == 5:
             minute, hour, day, month, day_of_week = parts
             return crontab(
@@ -94,7 +96,7 @@ class DatabaseScheduler(PersistentScheduler):
                 month_of_year=month,
                 day_of_week=day_of_week,
             )
-        raise ValueError(f"Invalid cron expression: {expr}")
+        raise ValueError(f"Invalid cron expression: {expr!r} (must be 5 space-separated fields, e.g. '* * * * *')")
 
 
 def _get_queue(priority: int) -> str:
