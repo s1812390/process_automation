@@ -14,9 +14,10 @@ interface LogViewerProps {
   runId: number
   isLive?: boolean
   initialLogs?: LogLine[]
+  logsLoading?: boolean
 }
 
-export function LogViewer({ runId, isLive = false, initialLogs = [] }: LogViewerProps) {
+export function LogViewer({ runId, isLive = false, initialLogs = [], logsLoading = false }: LogViewerProps) {
   const [logs, setLogs] = useState<LogLine[]>(initialLogs)
   const [connected, setConnected] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -137,7 +138,7 @@ export function LogViewer({ runId, isLive = false, initialLogs = [] }: LogViewer
       >
         {logs.length === 0 ? (
           <div className="text-[rgba(255,255,255,0.2)] text-[12px]">
-            {isLive ? 'Waiting for output...' : 'No logs available.'}
+            {isLive ? 'Waiting for output...' : logsLoading ? 'Loading logs...' : 'No logs available.'}
           </div>
         ) : (
           logs.map((log, i) => (

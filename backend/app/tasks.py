@@ -1,3 +1,4 @@
+import json
 import os
 import signal
 import subprocess
@@ -39,12 +40,29 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 
         # If called from beat scheduler without a run_id, create a new run
         if run_id is None:
+            # Extract default parameters from schema (same logic as manual run)
+            scheduled_params = None
+            if script.parameters_schema:
+                try:
+                    schema = json.loads(script.parameters_schema)
+                    if isinstance(schema, list):
+                        defaults = {
+                            p["name"]: p["default"]
+                            for p in schema
+                            if p.get("name") and p.get("default") not in (None, "")
+                        }
+                        if defaults:
+                            scheduled_params = defaults
+                except Exception:
+                    pass
+
             run = ScriptRun(
                 script_id=script.id,
                 status="pending",
                 triggered_by="scheduled",
                 attempt_number=1,
                 celery_task_id=self.request.id,
+                parameters=json.dumps(scheduled_params) if scheduled_params else None,
             )
             session.add(run)
             session.commit()
@@ -105,7 +123,6 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
             tmp_script = f.name
 
         # 5. Build environment: inherit + global vars + run parameters
-        import json as _json
         from app.models import GlobalVar
 
         child_env = os.environ.copy()
@@ -125,7 +142,7 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
         # Inject run parameters as PARAM_<NAME>=value
         if run.parameters:
             try:
-                params = _json.loads(run.parameters)
+                params = json.loads(run.parameters)
                 if isinstance(params, dict):
                     for k, v in params.items():
                         child_env[f"PARAM_{k.upper()}"] = str(v)
@@ -133,7 +150,7 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
                     with tempfile.NamedTemporaryFile(
                         mode="w", suffix=".json", prefix=f"params_{run_id}_", delete=False
                     ) as pf:
-                        _json.dump(params, pf)
+                        json.dump(params, pf)
                         child_env["SCHED_PARAMS_FILE"] = pf.name
             except Exception:
                 pass

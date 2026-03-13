@@ -266,7 +266,15 @@ function ScriptTable({
   onDelete: (script: Script) => void
 }) {
   return (
-    <table className="w-full">
+    <table className="w-full" style={{ tableLayout: 'fixed' }}>
+      <colgroup>
+        <col style={{ width: '34%' }} />
+        <col style={{ width: '20%' }} />
+        <col style={{ width: '8%' }} />
+        <col style={{ width: '23%' }} />
+        <col style={{ width: '10%' }} />
+        <col style={{ width: '5%' }} />
+      </colgroup>
       <thead>
         <tr className="bg-[rgba(240,242,247,0.6)]">
           <th className="text-left px-4 py-2.5 text-[10.5px] font-[700] uppercase tracking-[0.9px] text-ink-3">Name</th>

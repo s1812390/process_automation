@@ -27,7 +27,7 @@ export default function RunDetail() {
       data?.state.data?.status === 'running' || data?.state.data?.status === 'pending' ? 3000 : false,
   })
 
-  const { data: staticLogs } = useQuery({
+  const { data: staticLogs, isLoading: logsLoading } = useQuery({
     queryKey: ['runs', runId, 'logs'],
     queryFn: () => runsApi.getLogs(runId),
     enabled: run?.status !== 'running' && run?.status !== 'pending',
@@ -126,6 +126,7 @@ export default function RunDetail() {
         runId={runId}
         isLive={isLive}
         initialLogs={staticLogs || []}
+        logsLoading={logsLoading}
       />
     </div>
   )
