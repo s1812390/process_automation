@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Pencil, Trash2, X, Check } from 'lucide-react'
 import { variablesApi, GlobalVar } from '../api/variables'
+import { useToast } from '../components/Toast'
 
 export default function VariablesPage() {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
   const [editDesc, setEditDesc] = useState('')
@@ -26,7 +28,9 @@ export default function VariablesPage() {
       setNewKey('')
       setNewValue('')
       setNewDesc('')
+      toast('Variable added successfully')
     },
+    onError: () => toast('Failed to add variable', 'error'),
   })
 
   const updateMutation = useMutation({
@@ -35,12 +39,18 @@ export default function VariablesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['variables'] })
       setEditingId(null)
+      toast('Variable updated')
     },
+    onError: () => toast('Failed to update variable', 'error'),
   })
 
   const deleteMutation = useMutation({
     mutationFn: variablesApi.delete,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['variables'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['variables'] })
+      toast('Variable deleted')
+    },
+    onError: () => toast('Failed to delete variable', 'error'),
   })
 
   const startEdit = (v: GlobalVar) => {

@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Play, Trash2, Plus, Mail, MessageCircle, X, ChevronLeft, Copy, RefreshCw, Check } from 'lucide-react'
+import { Play, Trash2, Plus, Mail, MessageCircle, X, ChevronLeft, Copy, RefreshCw, Check, AlertTriangle } from 'lucide-react'
 import { scriptsApi, alertsApi, AlertConfigCreate } from '../api/scripts'
 import { runsApi } from '../api/runs'
 import { ScriptEditor } from '../components/ScriptEditor'
 import { CronInput } from '../components/CronInput'
 import { StatusBadge } from '../components/StatusBadge'
+import { useToast } from '../components/Toast'
 import { formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 
@@ -26,6 +27,7 @@ export default function ScriptDetail() {
   const scriptId = Number(id)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const toast = useToast()
 
   const initialTab = (searchParams.get('tab') as Tab) || 'editor'
   const [activeTab, setActiveTab] = useState<Tab>(initialTab)
@@ -62,6 +64,7 @@ export default function ScriptDetail() {
   } | null>(null)
   const [params, setParams] = useState<ParamDef[]>([])
   const [copiedWebhook, setCopiedWebhook] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
 
   // Run-with-params modal
   const [showRunModal, setShowRunModal] = useState(false)
@@ -92,19 +95,30 @@ export default function ScriptDetail() {
     }
   }, [script])
 
+  const [savingContext, setSavingContext] = useState<string>('')
+
   const updateMutation = useMutation({
     mutationFn: (data: Parameters<typeof scriptsApi.update>[1]) => scriptsApi.update(scriptId, data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['scripts', scriptId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scripts', scriptId] })
+      toast(savingContext || 'Changes saved')
+    },
+    onError: () => toast('Failed to save changes', 'error'),
   })
 
   const deleteMutation = useMutation({
     mutationFn: () => scriptsApi.delete(scriptId),
     onSuccess: () => navigate('/scripts'),
+    onError: () => toast('Failed to delete script', 'error'),
   })
 
   const regenWebhookMutation = useMutation({
     mutationFn: () => scriptsApi.regenerateWebhook(scriptId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['scripts', scriptId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scripts', scriptId] })
+      toast('Webhook token regenerated')
+    },
+    onError: () => toast('Failed to regenerate webhook', 'error'),
   })
 
   const runMutation = useMutation({
@@ -113,11 +127,16 @@ export default function ScriptDetail() {
       queryClient.invalidateQueries({ queryKey: ['runs'] })
       navigate(`/runs/${data.run_id}`)
     },
+    onError: () => toast('Failed to start script', 'error'),
   })
 
   const deleteAlertMutation = useMutation({
     mutationFn: alertsApi.delete,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['scripts', scriptId, 'alerts'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['scripts', scriptId, 'alerts'] })
+      toast('Alert deleted')
+    },
+    onError: () => toast('Failed to delete alert', 'error'),
   })
 
   const [newAlert, setNewAlert] = useState<AlertConfigCreate | null>(null)
@@ -126,7 +145,9 @@ export default function ScriptDetail() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['scripts', scriptId, 'alerts'] })
       setNewAlert(null)
+      toast('Alert created')
     },
+    onError: () => toast('Failed to create alert', 'error'),
   })
 
   if (isLoading || !script) {
@@ -174,11 +195,53 @@ export default function ScriptDetail() {
   }
 
   const saveParams = () => {
+    setSavingContext('Parameters saved')
     updateMutation.mutate({ parameters_schema: JSON.stringify(params) })
   }
 
   return (
     <div className="max-w-5xl mx-auto">
+      {/* Delete confirm modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-ink-1/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
+            <div className="px-6 py-5 border-b border-[rgba(99,112,156,0.1)]">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-danger-dim flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-4 h-4 text-danger" />
+                </div>
+                <div>
+                  <h2 className="text-[15px] font-[800] text-ink-1">Delete Script</h2>
+                  <p className="text-[12px] text-ink-3 mt-0.5">This action cannot be undone</p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-[13px] text-ink-2">
+                Are you sure you want to delete{' '}
+                <span className="font-[700] text-ink-1">"{script.name}"</span>?
+                All run history will also be deleted.
+              </p>
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 px-4 py-2 rounded-lg text-[13px] font-[700] bg-white text-ink-2 border border-[rgba(99,112,156,0.2)] hover:bg-bg active:scale-[0.97] transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowDeleteModal(false); deleteMutation.mutate() }}
+                disabled={deleteMutation.isPending}
+                className="flex-1 px-4 py-2 rounded-lg text-[13px] font-[700] bg-danger text-white hover:bg-[#a01227] active:scale-[0.97] transition-all disabled:opacity-50"
+              >
+                {deleteMutation.isPending ? 'Deleting...' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Run modal */}
       {showRunModal && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -247,7 +310,7 @@ export default function ScriptDetail() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => { if (confirm(`Delete "${script.name}"?`)) deleteMutation.mutate() }}
+            onClick={() => setShowDeleteModal(true)}
             className="px-3 py-2 rounded-lg text-[13px] font-[700] bg-danger-dim text-danger border border-danger/15 hover:bg-danger/10 active:scale-[0.97] transition-all"
           >
             <Trash2 className="w-4 h-4" />
@@ -291,7 +354,7 @@ export default function ScriptDetail() {
         <div className="space-y-4">
           <ScriptEditor value={editorContent || script.script_content} onChange={setEditorContent} height="500px" />
           <div className="flex justify-end">
-            <button onClick={() => updateMutation.mutate({ script_content: editorContent })} disabled={updateMutation.isPending}
+            <button onClick={() => { setSavingContext('Script saved'); updateMutation.mutate({ script_content: editorContent }) }} disabled={updateMutation.isPending}
               className="px-5 py-2 rounded-lg text-[13px] font-[700] bg-ink-1 text-white hover:bg-[#1e2535] hover:-translate-y-px active:scale-[0.97] transition-all disabled:opacity-50">
               {updateMutation.isPending ? 'Saving...' : 'Save'}
             </button>
@@ -308,7 +371,7 @@ export default function ScriptDetail() {
             onChange={setReqContent} language="plaintext" height="300px"
           />
           <div className="flex justify-end">
-            <button onClick={() => updateMutation.mutate({ requirements_content: reqContent })} disabled={updateMutation.isPending}
+            <button onClick={() => { setSavingContext('Requirements saved'); updateMutation.mutate({ requirements_content: reqContent }) }} disabled={updateMutation.isPending}
               className="px-5 py-2 rounded-lg text-[13px] font-[700] bg-ink-1 text-white hover:bg-[#1e2535] hover:-translate-y-px active:scale-[0.97] transition-all disabled:opacity-50">
               {updateMutation.isPending ? 'Saving...' : 'Save'}
             </button>
@@ -379,7 +442,7 @@ export default function ScriptDetail() {
               </div>
             </div>
             <div className="flex justify-end pt-2">
-              <button onClick={() => updateMutation.mutate({
+              <button onClick={() => { setSavingContext('Settings saved'); updateMutation.mutate({
                 cron_expression: settings.cron_expression || undefined,
                 timeout_seconds: settings.timeout_seconds ? +settings.timeout_seconds : undefined,
                 priority: settings.priority, max_retries: settings.max_retries,
@@ -387,7 +450,7 @@ export default function ScriptDetail() {
                 ram_limit_mb: settings.ram_limit_mb ? +settings.ram_limit_mb : undefined,
                 is_active: settings.is_active,
                 tag: settings.tag.trim() || undefined,
-              })} disabled={updateMutation.isPending}
+              }) }} disabled={updateMutation.isPending}
                 className="px-5 py-2 rounded-lg text-[13px] font-[700] bg-ink-1 text-white hover:bg-[#1e2535] hover:-translate-y-px active:scale-[0.97] transition-all disabled:opacity-50">
                 {updateMutation.isPending ? 'Saving...' : 'Save Settings'}
               </button>
@@ -404,7 +467,7 @@ export default function ScriptDetail() {
                 </p>
               </div>
               <button
-                onClick={() => { if (confirm('Regenerate webhook token? Existing URLs will stop working.')) regenWebhookMutation.mutate() }}
+                onClick={() => regenWebhookMutation.mutate()}
                 disabled={regenWebhookMutation.isPending}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-[700] text-ink-3 border border-[rgba(99,112,156,0.2)] hover:text-ink-1 hover:bg-bg active:scale-[0.97] transition-all"
               >

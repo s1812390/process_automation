@@ -36,6 +36,15 @@
   animation: pulse-dot 1.5s ease-in-out infinite;
 }
 
+/* Toast slide-in animation */
+@keyframes toast-slide-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.toast-enter {
+  animation: toast-slide-in 0.22s ease-out forwards;
+}
+
 /* Animated background blobs */
 @keyframes blob-drift {
   0%, 100% { transform: translate(0, 0) scale(1); }

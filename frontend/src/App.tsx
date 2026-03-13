@@ -8,11 +8,13 @@ import RunDetail from './pages/RunDetail'
 import SettingsPage from './pages/Settings'
 import VariablesPage from './pages/Variables'
 import { TimezoneProvider } from './context/TimezoneContext'
+import { ToastProvider } from './components/Toast'
 
 export default function App() {
   return (
     <BrowserRouter>
     <TimezoneProvider>
+    <ToastProvider>
       <div className="flex h-screen overflow-hidden bg-bg">
         {/* Background blobs */}
         <div className="fixed inset-0 pointer-events-none overflow-hidden">
@@ -46,6 +48,7 @@ export default function App() {
           </main>
         </div>
       </div>
+    </ToastProvider>
     </TimezoneProvider>
     </BrowserRouter>
   )
