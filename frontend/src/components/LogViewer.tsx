@@ -27,8 +27,11 @@ export function LogViewer({ runId, isLive = false, initialLogs = [], logsLoading
   useEffect(() => {
     if (!isLive) {
       setLogs(initialLogs)
-      return
     }
+  }, [isLive, initialLogs])
+
+  useEffect(() => {
+    if (!isLive) return
 
     const es = new EventSource(`/api/runs/${runId}/logs/stream`)
     setConnected(true)

@@ -30,7 +30,7 @@ export default function RunDetail() {
   const { data: staticLogs, isLoading: logsLoading } = useQuery({
     queryKey: ['runs', runId, 'logs'],
     queryFn: () => runsApi.getLogs(runId),
-    enabled: run?.status !== 'running' && run?.status !== 'pending',
+    enabled: !!run && run.status !== 'running' && run.status !== 'pending',
   })
 
   const cancelMutation = useMutation({
