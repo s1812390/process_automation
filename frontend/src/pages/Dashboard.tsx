@@ -325,7 +325,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2 mb-3 flex-wrap">
             <Tag className="w-3.5 h-3.5 text-ink-3 flex-shrink-0" />
             <button
-              onClick={() => setSelectedRunTag(null)}
+              onClick={() => { setSelectedRunTag(null); setPage(1) }}
               className={`px-3 py-1 rounded-full text-[11px] font-[700] transition-all ${
                 selectedRunTag === null
                   ? 'bg-ink-1 text-white'
@@ -337,7 +337,7 @@ export default function Dashboard() {
             {uniqueRunTags.map((tag) => (
               <button
                 key={tag}
-                onClick={() => setSelectedRunTag(selectedRunTag === tag ? null : tag)}
+                onClick={() => { setSelectedRunTag(selectedRunTag === tag ? null : tag); setPage(1) }}
                 className={`px-3 py-1 rounded-full text-[11px] font-[700] transition-all ${
                   selectedRunTag === tag
                     ? 'bg-violet text-white'

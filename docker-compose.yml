@@ -89,15 +89,16 @@ services:
     command: celery -A app.celery_app beat --scheduler app.beat_schedule.DatabaseScheduler --loglevel=info
     logging: *default-logging
 
-  nginx:
-    image: nginx:1.25-alpine
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
     depends_on:
       - backend
     ports:
-      - "80:80"
+      - "8080:80"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
-      - ./frontend/dist:/usr/share/nginx/html
     logging: *default-logging
 
 volumes:
