@@ -9,7 +9,8 @@ Quick reference for Claude Code sessions on this project.
 A Python script scheduler with a React UI. Users create Python scripts, schedule them via cron, run them manually or via webhook, monitor logs in real time, and receive alerts on failure.
 
 **Stack:** FastAPI + Celery + Oracle DB + React + Vite
-**Docker services:** `backend`, `worker`, `beat`, `redis`, `frontend` (nginx)
+**Docker services:** `backend`, `celery-worker`, `celery-beat`, `redis`, `nginx`
+**Docker logs:** capped at 20 MB × 5 files per service (configured in docker-compose.yml)
 
 ---
 
@@ -57,6 +58,8 @@ process_automation/
 ├── frontend/
 │   └── src/
 │       ├── App.tsx              # Routes: / /scripts /scripts/:id /runs/:id /variables /settings
+│       ├── context/
+│       │   └── TimezoneContext.tsx  # Timezone from settings, formatDateTime helper
 │       ├── api/
 │       │   ├── client.ts        # Axios, baseURL=/api
 │       │   ├── scripts.ts       # Scripts + alerts API
@@ -112,8 +115,9 @@ process_automation/
 3. `pip install --index-url https://pypi.org/simple/ -r requirements` (if any)
 4. Write script to temp `.py` file
 5. Load `SH_GLOBAL_VARS` → inject as env vars
-6. Parse `run.parameters` JSON → inject as `PARAM_<NAME>` env vars + write `SCHED_PARAMS_FILE=/tmp/params_{run_id}.json`
-7. Spawn subprocess with `env=child_env`
+6. Inject `TZ=<timezone>` from `SH_APP_SETTINGS` so `datetime.now()` returns local time
+7. Parse `run.parameters` JSON → inject as `PARAM_<NAME>` env vars + write `SCHED_PARAMS_FILE=/tmp/params_{run_id}.json`
+8. Spawn subprocess with `env=child_env`
 8. Stream stdout/stderr to `SH_RUN_LOGS`
 9. Update run status (success/failed/timeout)
 10. Retry or send alert if failed
@@ -150,7 +154,7 @@ api_key = os.environ["MY_API_KEY"]  # set in Global Variables page
 | PATCH | `/api/scripts/{id}/toggle` | Toggle is_active |
 | PATCH | `/api/scripts/{id}/regenerate-webhook` | New webhook token |
 | POST | `/api/scripts/{id}/run` | Manual run (optional JSON body = parameters) |
-| GET | `/api/runs` | List runs (paginated, `?script_id=&status=`) |
+| GET | `/api/runs` | List runs (paginated, `?script_id=&status=&date_from=&date_to=`) |
 | GET | `/api/runs/active` | Running/pending runs |
 | GET/DELETE | `/api/runs/{id}` | Get run / cancel |
 | GET | `/api/runs/{id}/logs` | All log lines |
@@ -223,8 +227,26 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE alembic_version'; EXCEPTION WHEN OTHERS THEN
 
 ---
 
+## Beat Scheduler — важные детали
+
+`celery-beat` использует кастомный `DatabaseScheduler` (beat_schedule.py):
+- Читает скрипты из DB каждые 60 сек
+- Cron выражения интерпретируются в timezone из `SH_APP_SETTINGS.timezone`
+- Cron должен быть с пробелами: `* * * * *`, не `*****`
+- `last_run_at` сохраняется при обновлении — не сбрасывает расписание
+- Shelve-файл: `celerybeat-schedule` (внутри контейнера)
+
+## SH_APP_SETTINGS — известные ключи
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `timezone` | `Asia/Almaty` | Timezone для cron и отображения времени |
+| `max_concurrent_workers` | `2` | Макс параллельных воркеров |
+| `default_timeout_seconds` | `3600` | Таймаут скрипта по умолчанию |
+| `default_max_retries` | `0` | Кол-во повторных попыток |
+
 ## Git Branch
 
-Development branch: `claude/python-script-scheduler-GBlbf`
+Development branch: `claude/fix-logs-page-KV66H`
 
 Always push to this branch. Never push to main without explicit permission.
