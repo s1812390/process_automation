@@ -58,6 +58,7 @@ export default function ScriptDetail() {
     cpu_cores: string
     ram_limit_mb: string
     is_active: boolean
+    tag: string
   } | null>(null)
   const [params, setParams] = useState<ParamDef[]>([])
   const [copiedWebhook, setCopiedWebhook] = useState(false)
@@ -79,6 +80,7 @@ export default function ScriptDetail() {
           cpu_cores: script.cpu_cores?.toString() || '',
           ram_limit_mb: script.ram_limit_mb?.toString() || '',
           is_active: script.is_active,
+          tag: script.tag || '',
         })
       }
       try {
@@ -319,6 +321,17 @@ export default function ScriptDetail() {
         <div className="space-y-5">
           <div className="bg-white rounded-lg border border-[rgba(99,112,156,0.12)] p-6 space-y-5">
             <div>
+              <label className="block text-[12px] font-[700] text-ink-2 mb-1.5">Tag</label>
+              <input
+                type="text"
+                value={settings.tag}
+                onChange={(e) => setSettings({ ...settings, tag: e.target.value })}
+                placeholder="e.g. ETL, Reports, Alerts"
+                className="w-full px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
+              />
+              <p className="text-[10px] text-ink-3 mt-1">Optional label to group scripts on the Scripts page</p>
+            </div>
+            <div>
               <label className="block text-[12px] font-[700] text-ink-2 mb-1.5">Schedule (cron expression)</label>
               <CronInput value={settings.cron_expression} onChange={(v) => setSettings({ ...settings, cron_expression: v })} />
             </div>
@@ -373,6 +386,7 @@ export default function ScriptDetail() {
                 cpu_cores: settings.cpu_cores ? +settings.cpu_cores : undefined,
                 ram_limit_mb: settings.ram_limit_mb ? +settings.ram_limit_mb : undefined,
                 is_active: settings.is_active,
+                tag: settings.tag.trim() || undefined,
               })} disabled={updateMutation.isPending}
                 className="px-5 py-2 rounded-lg text-[13px] font-[700] bg-ink-1 text-white hover:bg-[#1e2535] hover:-translate-y-px active:scale-[0.97] transition-all disabled:opacity-50">
                 {updateMutation.isPending ? 'Saving...' : 'Save Settings'}

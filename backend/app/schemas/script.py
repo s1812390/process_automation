@@ -24,6 +24,7 @@ class ScriptBase(BaseModel):
     ram_limit_mb: Optional[int] = Field(None, gt=0)
     is_active: bool = True
     parameters_schema: Optional[str] = None
+    tag: Optional[str] = None
 
 
 class ScriptCreate(ScriptBase):
@@ -43,6 +44,7 @@ class ScriptUpdate(BaseModel):
     ram_limit_mb: Optional[int] = Field(None, gt=0)
     is_active: Optional[bool] = None
     parameters_schema: Optional[str] = None
+    tag: Optional[str] = None
 
 
 class ScriptResponse(ScriptBase):
@@ -69,6 +71,7 @@ class ScriptListResponse(BaseModel):
     priority: int
     is_active: bool
     created_at: datetime
+    tag: Optional[str] = None
     last_run_status: Optional[str] = None
     last_run_at: Optional[datetime] = None
 

@@ -15,6 +15,7 @@ export interface Script {
   is_active: boolean
   webhook_token?: string
   parameters_schema?: string
+  tag?: string
   created_at: string
   updated_at?: string
   last_run_status?: string
@@ -33,9 +34,10 @@ export interface ScriptCreate {
   cpu_cores?: number
   ram_limit_mb?: number
   is_active?: boolean
+  tag?: string
 }
 
-export type ScriptUpdate = Partial<ScriptCreate & { parameters_schema: string }>
+export type ScriptUpdate = Partial<ScriptCreate & { parameters_schema: string; tag: string }>
 
 export const scriptsApi = {
   list: () => client.get<Script[]>('/scripts').then(r => r.data),

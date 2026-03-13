@@ -21,6 +21,7 @@ class Script(Base):
     is_active = Column(Boolean, default=True)
     webhook_token = Column(String(64), unique=True)
     parameters_schema = Column(Text)
+    tag = Column(String(100))
     created_at = Column(DateTime, server_default=func.current_timestamp())
     updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
 

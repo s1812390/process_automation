@@ -1,12 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Code2, Play, CheckCircle, XCircle, ChevronLeft, ChevronRight, Calendar } from 'lucide-react'
+import { Code2, Play, CheckCircle, XCircle, ChevronLeft, ChevronRight, Calendar, Tag } from 'lucide-react'
 import { runsApi, Run } from '../api/runs'
 import { scriptsApi } from '../api/scripts'
 import { StatusBadge } from '../components/StatusBadge'
 import { StatCard } from '../components/StatCard'
 import { formatDistanceToNow, subDays, startOfDay, endOfDay } from 'date-fns'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTimezone } from '../context/TimezoneContext'
 
 const PAGE_SIZE = 15
@@ -55,6 +55,7 @@ export default function Dashboard() {
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [page, setPage] = useState(1)
+  const [selectedRunTag, setSelectedRunTag] = useState<string | null>(null)
 
   const { from, to } = getPeriodDates(period, customFrom, customTo)
 
@@ -109,6 +110,19 @@ export default function Dashboard() {
     },
   })
 
+  // Tag lookup: script_id → tag
+  const scriptTagMap = useMemo(() => {
+    const map = new Map<number, string>()
+    scripts.forEach((s) => { if (s.tag) map.set(s.id, s.tag) })
+    return map
+  }, [scripts])
+
+  const uniqueRunTags = useMemo(() => {
+    const tags = new Set<string>()
+    scripts.forEach((s) => { if (s.tag) tags.add(s.tag) })
+    return Array.from(tags).sort()
+  }, [scripts])
+
   const periodRuns = statsRuns?.items ?? []
   const successCount = periodRuns.filter((r) => r.status === 'success').length
   const failedCount = periodRuns.filter((r) => r.status === 'failed' || r.status === 'timeout').length
@@ -116,6 +130,12 @@ export default function Dashboard() {
 
   const runningRuns = activeRuns.filter((r) => r.status === 'running')
   const pendingRuns = activeRuns.filter((r) => r.status === 'pending')
+
+  const filteredRecentItems = useMemo(() => {
+    const items = recentRuns?.items ?? []
+    if (!selectedRunTag) return items
+    return items.filter((r) => scriptTagMap.get(r.script_id) === selectedRunTag)
+  }, [recentRuns, selectedRunTag, scriptTagMap])
 
   const totalPages = recentRuns ? Math.ceil(recentRuns.total / PAGE_SIZE) : 1
 
@@ -300,8 +320,38 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Tag filter */}
+        {uniqueRunTags.length > 0 && (
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <Tag className="w-3.5 h-3.5 text-ink-3 flex-shrink-0" />
+            <button
+              onClick={() => setSelectedRunTag(null)}
+              className={`px-3 py-1 rounded-full text-[11px] font-[700] transition-all ${
+                selectedRunTag === null
+                  ? 'bg-ink-1 text-white'
+                  : 'bg-white text-ink-2 border border-[rgba(99,112,156,0.2)] hover:border-violet hover:text-violet'
+              }`}
+            >
+              All
+            </button>
+            {uniqueRunTags.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => setSelectedRunTag(selectedRunTag === tag ? null : tag)}
+                className={`px-3 py-1 rounded-full text-[11px] font-[700] transition-all ${
+                  selectedRunTag === tag
+                    ? 'bg-violet text-white'
+                    : 'bg-white text-ink-2 border border-[rgba(99,112,156,0.2)] hover:border-violet hover:text-violet'
+                }`}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="bg-white rounded-lg border border-[rgba(99,112,156,0.12)] overflow-hidden">
-          {recentRuns?.items.length === 0 ? (
+          {filteredRecentItems.length === 0 ? (
             <div className="px-6 py-10 text-center text-[13px] text-ink-3">
               No runs in this period.
             </div>
@@ -312,13 +362,14 @@ export default function Dashboard() {
                   <th className="text-left px-4 py-2.5 text-[10.5px] font-[700] uppercase tracking-[0.9px] text-ink-3">Script</th>
                   <th className="text-left px-4 py-2.5 text-[10.5px] font-[700] uppercase tracking-[0.9px] text-ink-3">Status</th>
                   <th className="text-left px-4 py-2.5 text-[10.5px] font-[700] uppercase tracking-[0.9px] text-ink-3">Trigger</th>
+                  <th className="text-left px-4 py-2.5 text-[10.5px] font-[700] uppercase tracking-[0.9px] text-ink-3">Tag</th>
                   <th className="text-left px-4 py-2.5 text-[10.5px] font-[700] uppercase tracking-[0.9px] text-ink-3">Duration</th>
                   <th className="text-left px-4 py-2.5 text-[10.5px] font-[700] uppercase tracking-[0.9px] text-ink-3">Time</th>
                   <th className="px-4 py-2.5" />
                 </tr>
               </thead>
               <tbody>
-                {recentRuns?.items.map((run) => (
+                {filteredRecentItems.map((run) => (
                   <tr key={run.id} className="border-t border-[rgba(99,112,156,0.06)] hover:bg-accent/[0.025]">
                     <td className="px-4 py-3">
                       <Link to={`/scripts/${run.script_id}`} className="text-[13.5px] font-[600] text-ink-1 hover:text-accent">
@@ -332,6 +383,16 @@ export default function Dashboard() {
                       <span className="text-[11px] font-mono font-[700] text-ink-3 bg-bg px-1.5 py-0.5 rounded">
                         {run.triggered_by}
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {scriptTagMap.get(run.script_id) ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-[700] bg-violet-dim text-violet">
+                          <Tag className="w-2.5 h-2.5" />
+                          {scriptTagMap.get(run.script_id)}
+                        </span>
+                      ) : (
+                        <span className="text-[12px] text-ink-3">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-[13px] font-mono text-ink-2">
                       {formatDuration(run.duration_ms)}
