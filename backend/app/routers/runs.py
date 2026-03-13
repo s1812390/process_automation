@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
-from typing import Optional
+from typing import List, Optional
 
 from app.database import get_db
 from app.models import Script, ScriptRun, RunLog
@@ -36,13 +36,16 @@ async def list_runs(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     script_id: Optional[int] = None,
+    script_ids: Optional[List[int]] = Query(None),
     status: Optional[str] = None,
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
     session: AsyncSession = Depends(get_db),
 ):
     query = select(ScriptRun)
-    if script_id:
+    if script_ids:
+        query = query.where(ScriptRun.script_id.in_(script_ids))
+    elif script_id:
         query = query.where(ScriptRun.script_id == script_id)
     if status:
         query = query.where(ScriptRun.status == status)

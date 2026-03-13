@@ -71,14 +71,22 @@ export default function Dashboard() {
     refetchInterval: 5000,
   })
 
+  const scriptIdsForTag = useMemo(() => {
+    if (!selectedRunTag) return undefined
+    const ids: number[] = []
+    scripts.forEach((s) => { if (s.tag === selectedRunTag) ids.push(s.id) })
+    return ids.length > 0 ? ids : [-1] // -1 ensures empty result when no scripts have this tag
+  }, [selectedRunTag, scripts])
+
   const { data: recentRuns } = useQuery({
-    queryKey: ['runs', 'dashboard', period, customFrom, customTo, page],
+    queryKey: ['runs', 'dashboard', period, customFrom, customTo, page, selectedRunTag],
     queryFn: () =>
       runsApi.list({
         page,
         page_size: PAGE_SIZE,
         date_from: from.toISOString(),
         date_to: to.toISOString(),
+        script_ids: scriptIdsForTag,
       }),
     refetchInterval: 5000,
   })
@@ -131,12 +139,7 @@ export default function Dashboard() {
   const runningRuns = activeRuns.filter((r) => r.status === 'running')
   const pendingRuns = activeRuns.filter((r) => r.status === 'pending')
 
-  const filteredRecentItems = useMemo(() => {
-    const items = recentRuns?.items ?? []
-    if (!selectedRunTag) return items
-    return items.filter((r) => scriptTagMap.get(r.script_id) === selectedRunTag)
-  }, [recentRuns, selectedRunTag, scriptTagMap])
-
+  const recentItems = recentRuns?.items ?? []
   const totalPages = recentRuns ? Math.ceil(recentRuns.total / PAGE_SIZE) : 1
 
   const periodLabel =
@@ -351,7 +354,7 @@ export default function Dashboard() {
         )}
 
         <div className="bg-white rounded-lg border border-[rgba(99,112,156,0.12)] overflow-hidden">
-          {filteredRecentItems.length === 0 ? (
+          {recentItems.length === 0 ? (
             <div className="px-6 py-10 text-center text-[13px] text-ink-3">
               No runs in this period.
             </div>
@@ -369,7 +372,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRecentItems.map((run) => (
+                {recentItems.map((run) => (
                   <tr key={run.id} className="border-t border-[rgba(99,112,156,0.06)] hover:bg-accent/[0.025]">
                     <td className="px-4 py-3">
                       <Link to={`/scripts/${run.script_id}`} className="text-[13.5px] font-[600] text-ink-1 hover:text-accent">

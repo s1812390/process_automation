@@ -31,7 +31,7 @@ export interface LogLine {
 }
 
 export const runsApi = {
-  list: (params?: { page?: number; page_size?: number; script_id?: number; status?: string; date_from?: string; date_to?: string }) =>
+  list: (params?: { page?: number; page_size?: number; script_id?: number; script_ids?: number[]; status?: string; date_from?: string; date_to?: string }) =>
     client.get<RunListResponse>('/runs', { params }).then(r => r.data),
   getActive: () => client.get<Run[]>('/runs/active').then(r => r.data),
   get: (id: number) => client.get<Run>(`/runs/${id}`).then(r => r.data),

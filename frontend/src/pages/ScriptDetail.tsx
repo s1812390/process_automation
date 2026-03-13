@@ -374,7 +374,7 @@ export default function ScriptDetail() {
                 <label className="text-[12px] font-[700] text-ink-2">Active</label>
                 <button type="button" onClick={() => setSettings({ ...settings, is_active: !settings.is_active })}
                   className={clsx('relative w-10 h-5 rounded-full transition-colors', settings.is_active ? 'bg-success' : 'bg-[rgba(99,112,156,0.2)]')}>
-                  <span className={clsx('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform', settings.is_active ? 'translate-x-[22px]' : 'translate-x-0.5')} />
+                  <span className={clsx('absolute top-0.5 left-0 w-4 h-4 rounded-full bg-white shadow transition-transform', settings.is_active ? 'translate-x-[22px]' : 'translate-x-0.5')} />
                 </button>
               </div>
             </div>
