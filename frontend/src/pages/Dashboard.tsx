@@ -1,12 +1,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Code2, Play, CheckCircle, XCircle, Loader2, ChevronLeft, ChevronRight, Calendar } from 'lucide-react'
+import { Code2, Play, CheckCircle, XCircle, ChevronLeft, ChevronRight, Calendar } from 'lucide-react'
 import { runsApi, Run } from '../api/runs'
 import { scriptsApi } from '../api/scripts'
 import { StatusBadge } from '../components/StatusBadge'
 import { StatCard } from '../components/StatCard'
-import { formatDistanceToNow, format, subDays, startOfDay, endOfDay } from 'date-fns'
+import { formatDistanceToNow, subDays, startOfDay, endOfDay } from 'date-fns'
 import { useState, useEffect } from 'react'
+import { useTimezone } from '../context/TimezoneContext'
 
 const PAGE_SIZE = 15
 
@@ -48,6 +49,7 @@ function getPeriodDates(period: PeriodOption, customFrom: string, customTo: stri
 
 export default function Dashboard() {
   const queryClient = useQueryClient()
+  const { formatDateTime } = useTimezone()
 
   const [period, setPeriod] = useState<PeriodOption>('2d')
   const [customFrom, setCustomFrom] = useState('')
@@ -225,7 +227,7 @@ export default function Dashboard() {
                     <td className="px-4 py-3">
                       <span className="text-[11px] font-[700] font-mono text-ink-3">P{i + 1}</span>
                     </td>
-                    <td className="px-4 py-3 text-[12px] text-ink-3">
+                    <td className="px-4 py-3 text-[12px] text-ink-3" title={formatDateTime(run.created_at)}>
                       {formatDistanceToNow(new Date(run.created_at), { addSuffix: true })}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -334,7 +336,7 @@ export default function Dashboard() {
                     <td className="px-4 py-3 text-[13px] font-mono text-ink-2">
                       {formatDuration(run.duration_ms)}
                     </td>
-                    <td className="px-4 py-3 text-[12px] text-ink-3">
+                    <td className="px-4 py-3 text-[12px] text-ink-3" title={formatDateTime(run.created_at)}>
                       {formatDistanceToNow(new Date(run.created_at), { addSuffix: true })}
                     </td>
                     <td className="px-4 py-3 text-right">

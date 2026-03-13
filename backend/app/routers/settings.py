@@ -26,16 +26,21 @@ def _parse_optional_int(val: Optional[str]) -> Optional[int]:
         return None
 
 
-@router.get("", response_model=SettingsResponse)
-async def get_settings(session: AsyncSession = Depends(get_db)):
-    d = await _get_settings_dict(session)
+def _build_settings_response(d: dict) -> SettingsResponse:
     return SettingsResponse(
         max_concurrent_workers=int(d.get("max_concurrent_workers", "2")),
         default_timeout_seconds=int(d.get("default_timeout_seconds", "3600")),
         default_max_retries=int(d.get("default_max_retries", "0")),
         default_cpu_cores=_parse_optional_int(d.get("default_cpu_cores")),
         default_ram_limit_mb=_parse_optional_int(d.get("default_ram_limit_mb")),
+        timezone=d.get("timezone", "Asia/Almaty"),
     )
+
+
+@router.get("", response_model=SettingsResponse)
+async def get_settings(session: AsyncSession = Depends(get_db)):
+    d = await _get_settings_dict(session)
+    return _build_settings_response(d)
 
 
 @router.put("", response_model=SettingsResponse)
@@ -50,10 +55,4 @@ async def update_settings(data: SettingsUpdate, session: AsyncSession = Depends(
             session.add(AppSetting(key=key, value=str_val))
     await session.flush()
     d = await _get_settings_dict(session)
-    return SettingsResponse(
-        max_concurrent_workers=int(d.get("max_concurrent_workers", "2")),
-        default_timeout_seconds=int(d.get("default_timeout_seconds", "3600")),
-        default_max_retries=int(d.get("default_max_retries", "0")),
-        default_cpu_cores=_parse_optional_int(d.get("default_cpu_cores")),
-        default_ram_limit_mb=_parse_optional_int(d.get("default_ram_limit_mb")),
-    )
+    return _build_settings_response(d)

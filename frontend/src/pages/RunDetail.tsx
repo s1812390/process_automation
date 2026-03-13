@@ -4,7 +4,7 @@ import { ChevronLeft, Square } from 'lucide-react'
 import { runsApi } from '../api/runs'
 import { StatusBadge } from '../components/StatusBadge'
 import { LogViewer } from '../components/LogViewer'
-import { format, formatDistanceToNow } from 'date-fns'
+import { useTimezone } from '../context/TimezoneContext'
 
 function formatDuration(ms?: number): string {
   if (!ms) return '—'
@@ -18,6 +18,7 @@ export default function RunDetail() {
   const runId = Number(id)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { formatDateTime } = useTimezone()
 
   const { data: run, isLoading } = useQuery({
     queryKey: ['runs', runId],
@@ -48,7 +49,7 @@ export default function RunDetail() {
   const statItems = [
     {
       label: 'Started',
-      value: run.started_at ? format(new Date(run.started_at), 'MMM d, HH:mm:ss') : '—',
+      value: run.started_at ? formatDateTime(run.started_at) : '—',
     },
     {
       label: 'Duration',

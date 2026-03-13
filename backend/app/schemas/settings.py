@@ -8,6 +8,7 @@ class SettingsResponse(BaseModel):
     default_max_retries: int = 0
     default_cpu_cores: Optional[int] = None
     default_ram_limit_mb: Optional[int] = None
+    timezone: str = "Asia/Almaty"
 
 
 class SettingsUpdate(BaseModel):
@@ -16,3 +17,4 @@ class SettingsUpdate(BaseModel):
     default_max_retries: Optional[int] = None
     default_cpu_cores: Optional[int] = None
     default_ram_limit_mb: Optional[int] = None
+    timezone: Optional[str] = None

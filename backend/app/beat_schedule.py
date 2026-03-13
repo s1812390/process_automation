@@ -2,6 +2,7 @@
 Dynamic beat schedule that reads active scripts with cron_expression from Oracle DB.
 """
 import time
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from celery.beat import PersistentScheduler, ScheduleEntry
 from celery.schedules import crontab
 import structlog
@@ -19,7 +20,7 @@ class DatabaseScheduler(PersistentScheduler):
         super().__init__(*args, **kwargs)
 
     def setup_schedule(self):
-        super().setup_schedule()  # opens shelve file (self._store) + installs default entries
+        super().setup_schedule()  # opens shelve (_store) + installs default entries
         self._update_from_db()
         self._db_last_update = time.monotonic()
 
@@ -29,6 +30,16 @@ class DatabaseScheduler(PersistentScheduler):
             self._update_from_db()
             self._db_last_update = now
         return super().tick(*args, **kwargs)
+
+    def _get_timezone(self, session) -> ZoneInfo:
+        """Read timezone from app settings, default to UTC."""
+        try:
+            from app.models import AppSetting
+            setting = session.get(AppSetting, "timezone")
+            tz_name = setting.value if setting and setting.value else "UTC"
+            return ZoneInfo(tz_name)
+        except (ZoneInfoNotFoundError, Exception):
+            return ZoneInfo("UTC")
 
     def _update_from_db(self):
         try:
@@ -42,6 +53,8 @@ class DatabaseScheduler(PersistentScheduler):
             session = Session()
 
             try:
+                tz = self._get_timezone(session)
+
                 scripts = session.execute(
                     select(Script).where(
                         Script.is_active == True,
@@ -49,16 +62,16 @@ class DatabaseScheduler(PersistentScheduler):
                     )
                 ).scalars().all()
 
-                # Remove old script entries first
-                to_remove = [k for k in list(self.data.keys()) if k.startswith("script-")]
+                # Remove old script entries from the real schedule store
+                to_remove = [k for k in list(self.schedule.keys()) if k.startswith("script-")]
                 for k in to_remove:
-                    del self.data[k]
+                    del self.schedule[k]
 
                 # Add updated entries as proper ScheduleEntry objects
                 count = 0
                 for script in scripts:
                     try:
-                        schedule = self._parse_cron(script.cron_expression)
+                        schedule = self._parse_cron(script.cron_expression, tz)
                         task_name = f"script-{script.id}"
                         entry = ScheduleEntry(
                             name=task_name,
@@ -69,13 +82,13 @@ class DatabaseScheduler(PersistentScheduler):
                             options={"queue": _get_queue(script.priority)},
                             app=self.app,
                         )
-                        self.data[task_name] = entry
+                        self.schedule[task_name] = entry
                         count += 1
                     except Exception as e:
                         logger.warning("Invalid cron expression", script_id=script.id, error=str(e))
 
                 self.sync()
-                logger.info("Beat schedule updated", count=count)
+                logger.info("Beat schedule updated", count=count, timezone=str(tz))
             finally:
                 session.close()
                 engine.dispose()
@@ -83,19 +96,22 @@ class DatabaseScheduler(PersistentScheduler):
         except Exception as e:
             logger.error("Failed to update beat schedule from DB", error=str(e))
 
-    def _parse_cron(self, expr: str) -> crontab:
+    def _parse_cron(self, expr: str, tz: ZoneInfo = None) -> crontab:
         # Normalize: collapse whitespace
         normalized = ' '.join(expr.strip().split())
         parts = normalized.split()
         if len(parts) == 5:
             minute, hour, day, month, day_of_week = parts
-            return crontab(
+            kwargs = dict(
                 minute=minute,
                 hour=hour,
                 day_of_month=day,
                 month_of_year=month,
                 day_of_week=day_of_week,
             )
+            if tz is not None:
+                kwargs['nowfun'] = lambda: __import__('datetime').datetime.now(tz)
+            return crontab(**kwargs)
         raise ValueError(f"Invalid cron expression: {expr!r} (must be 5 space-separated fields, e.g. '* * * * *')")
 
 

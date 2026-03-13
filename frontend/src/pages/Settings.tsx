@@ -2,10 +2,25 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { settingsApi, Settings } from '../api/settings'
 import { CheckCircle } from 'lucide-react'
+import { useTimezone } from '../context/TimezoneContext'
+
+const TIMEZONE_OPTIONS = [
+  { value: 'Asia/Almaty', label: 'Asia/Almaty (UTC+5, Казахстан)' },
+  { value: 'Asia/Aqtau', label: 'Asia/Aqtau (UTC+5, Актау)' },
+  { value: 'Asia/Aqtobe', label: 'Asia/Aqtobe (UTC+5, Актобе)' },
+  { value: 'Asia/Oral', label: 'Asia/Oral (UTC+5, Уральск)' },
+  { value: 'Europe/Moscow', label: 'Europe/Moscow (UTC+3, Москва)' },
+  { value: 'Asia/Tashkent', label: 'Asia/Tashkent (UTC+5, Ташкент)' },
+  { value: 'Asia/Bishkek', label: 'Asia/Bishkek (UTC+6, Бишкек)' },
+  { value: 'Asia/Yekaterinburg', label: 'Asia/Yekaterinburg (UTC+5)' },
+  { value: 'UTC', label: 'UTC (UTC+0)' },
+  { value: 'Europe/London', label: 'Europe/London (UTC+0/+1)' },
+]
 
 export default function SettingsPage() {
   const queryClient = useQueryClient()
   const [saved, setSaved] = useState(false)
+  const { formatDateTime } = useTimezone()
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['settings'],
@@ -18,6 +33,7 @@ export default function SettingsPage() {
     default_max_retries: 0,
     default_cpu_cores: undefined,
     default_ram_limit_mb: undefined,
+    timezone: 'Asia/Almaty',
   })
 
   useEffect(() => {
@@ -28,6 +44,7 @@ export default function SettingsPage() {
     mutationFn: settingsApi.update,
     onSuccess: (data) => {
       queryClient.setQueryData(['settings'], data)
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     },
@@ -53,6 +70,27 @@ export default function SettingsPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {/* Timezone */}
+          <div>
+            <label className="block text-[12px] font-[700] text-ink-2 mb-1.5">
+              Timezone
+            </label>
+            <select
+              value={form.timezone}
+              onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+              className="w-full px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
+            >
+              {TIMEZONE_OPTIONS.map((tz) => (
+                <option key={tz.value} value={tz.value}>{tz.label}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-ink-3 mt-1">
+              Current time:&nbsp;
+              <span className="font-mono font-[600] text-ink-2">{formatDateTime(new Date())}</span>
+              &nbsp;· Cron expressions are interpreted in this timezone.
+            </p>
+          </div>
+
           {/* Max concurrent workers */}
           <div>
             <label className="block text-[12px] font-[700] text-ink-2 mb-2">

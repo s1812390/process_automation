@@ -6,6 +6,7 @@ export interface Settings {
   default_max_retries: number
   default_cpu_cores?: number
   default_ram_limit_mb?: number
+  timezone: string
 }
 
 export const settingsApi = {
