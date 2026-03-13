@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Pencil, Trash2, X, Check } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Check, AlertTriangle } from 'lucide-react'
 import { variablesApi, GlobalVar } from '../api/variables'
 import { useToast } from '../components/Toast'
 
@@ -14,6 +14,7 @@ export default function VariablesPage() {
   const [newKey, setNewKey] = useState('')
   const [newValue, setNewValue] = useState('')
   const [newDesc, setNewDesc] = useState('')
+  const [varToDelete, setVarToDelete] = useState<GlobalVar | null>(null)
 
   const { data: vars = [], isLoading } = useQuery({
     queryKey: ['variables'],
@@ -48,6 +49,7 @@ export default function VariablesPage() {
     mutationFn: variablesApi.delete,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['variables'] })
+      setVarToDelete(null)
       toast('Variable deleted')
     },
     onError: () => toast('Failed to delete variable', 'error'),
@@ -65,6 +67,49 @@ export default function VariablesPage() {
 
   return (
     <div className="max-w-4xl mx-auto">
+      {/* Delete confirm modal */}
+      {varToDelete && (
+        <div className="fixed inset-0 bg-ink-1/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
+            <div className="px-6 py-5 border-b border-[rgba(99,112,156,0.1)]">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-danger-dim flex items-center justify-center flex-shrink-0">
+                  <AlertTriangle className="w-4 h-4 text-danger" />
+                </div>
+                <div>
+                  <h2 className="text-[15px] font-[800] text-ink-1">Delete Variable</h2>
+                  <p className="text-[12px] text-ink-3 mt-0.5">This action cannot be undone</p>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-[13px] text-ink-2">
+                Are you sure you want to delete variable{' '}
+                <code className="font-mono font-[700] text-violet bg-accent/[0.07] px-1.5 py-0.5 rounded">
+                  {varToDelete.key}
+                </code>
+                ?
+              </p>
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => setVarToDelete(null)}
+                className="flex-1 px-4 py-2 rounded-lg text-[13px] font-[700] bg-white text-ink-2 border border-[rgba(99,112,156,0.2)] hover:bg-bg active:scale-[0.97] transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteMutation.mutate(varToDelete.id)}
+                disabled={deleteMutation.isPending}
+                className="flex-1 px-4 py-2 rounded-lg text-[13px] font-[700] bg-danger text-white hover:bg-[#a01227] active:scale-[0.97] transition-all disabled:opacity-50"
+              >
+                {deleteMutation.isPending ? 'Deleting...' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-[18px] font-[800] text-ink-1">Global Variables</h1>
@@ -211,9 +256,7 @@ export default function VariablesPage() {
                             <Pencil className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => {
-                              if (confirm(`Delete variable "${v.key}"?`)) deleteMutation.mutate(v.id)
-                            }}
+                            onClick={() => setVarToDelete(v)}
                             className="p-1.5 rounded text-ink-3 hover:text-danger hover:bg-danger-dim transition-colors"
                           >
                             <Trash2 className="w-4 h-4" />

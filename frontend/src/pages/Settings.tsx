@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { settingsApi, Settings } from '../api/settings'
 import { CheckCircle } from 'lucide-react'
 import { useTimezone } from '../context/TimezoneContext'
+import { useToast } from '../components/Toast'
 
 const TIMEZONE_OPTIONS = [
   { value: 'Asia/Almaty', label: 'Asia/Almaty (UTC+5, Казахстан)' },
@@ -21,6 +22,7 @@ export default function SettingsPage() {
   const queryClient = useQueryClient()
   const [saved, setSaved] = useState(false)
   const { formatDateTime } = useTimezone()
+  const toast = useToast()
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['settings'],
@@ -47,7 +49,9 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['settings'] })
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
+      toast('Settings saved successfully')
     },
+    onError: () => toast('Failed to save settings', 'error'),
   })
 
   const handleSubmit = (e: React.FormEvent) => {
