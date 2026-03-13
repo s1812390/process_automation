@@ -76,7 +76,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./backend:/app
-    command: celery -A app.celery_app beat --loglevel=info
+    command: celery -A app.celery_app beat --scheduler app.beat_schedule.DatabaseScheduler --loglevel=info
 
   nginx:
     image: nginx:1.25-alpine

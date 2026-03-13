@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +37,8 @@ async def list_runs(
     page_size: int = Query(20, ge=1, le=100),
     script_id: Optional[int] = None,
     status: Optional[str] = None,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
     session: AsyncSession = Depends(get_db),
 ):
     query = select(ScriptRun)
@@ -43,6 +46,10 @@ async def list_runs(
         query = query.where(ScriptRun.script_id == script_id)
     if status:
         query = query.where(ScriptRun.status == status)
+    if date_from:
+        query = query.where(ScriptRun.created_at >= date_from)
+    if date_to:
+        query = query.where(ScriptRun.created_at <= date_to)
 
     total_result = await session.execute(
         select(func.count()).select_from(query.subquery())

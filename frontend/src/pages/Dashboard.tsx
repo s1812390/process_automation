@@ -1,11 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Code2, Play, CheckCircle, XCircle, Loader2, Square, Clock } from 'lucide-react'
+import { Code2, Play, CheckCircle, XCircle, Loader2, ChevronLeft, ChevronRight, Calendar } from 'lucide-react'
 import { runsApi, Run } from '../api/runs'
 import { scriptsApi } from '../api/scripts'
 import { StatusBadge } from '../components/StatusBadge'
 import { StatCard } from '../components/StatCard'
-import { formatDistanceToNow, format } from 'date-fns'
+import { formatDistanceToNow, format, subDays, startOfDay, endOfDay } from 'date-fns'
+import { useState, useEffect } from 'react'
+
+const PAGE_SIZE = 15
+
+type PeriodOption = '2d' | '5d' | '10d' | 'custom'
 
 function formatDuration(ms?: number): string {
   if (!ms) return '—'
@@ -29,10 +34,27 @@ function ElapsedTimer({ startedAt }: { startedAt?: string }) {
   return <span>{formatDuration(elapsed)}</span>
 }
 
-import { useState, useEffect } from 'react'
+function getPeriodDates(period: PeriodOption, customFrom: string, customTo: string) {
+  const now = new Date()
+  if (period === '2d') return { from: startOfDay(subDays(now, 2)), to: endOfDay(now) }
+  if (period === '5d') return { from: startOfDay(subDays(now, 5)), to: endOfDay(now) }
+  if (period === '10d') return { from: startOfDay(subDays(now, 10)), to: endOfDay(now) }
+  // custom
+  return {
+    from: customFrom ? startOfDay(new Date(customFrom)) : startOfDay(subDays(now, 2)),
+    to: customTo ? endOfDay(new Date(customTo)) : endOfDay(now),
+  }
+}
 
 export default function Dashboard() {
   const queryClient = useQueryClient()
+
+  const [period, setPeriod] = useState<PeriodOption>('2d')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [page, setPage] = useState(1)
+
+  const { from, to } = getPeriodDates(period, customFrom, customTo)
 
   const { data: scripts = [] } = useQuery({
     queryKey: ['scripts'],
@@ -47,8 +69,27 @@ export default function Dashboard() {
   })
 
   const { data: recentRuns } = useQuery({
-    queryKey: ['runs', { page: 1, page_size: 20 }],
-    queryFn: () => runsApi.list({ page: 1, page_size: 20 }),
+    queryKey: ['runs', 'dashboard', period, customFrom, customTo, page],
+    queryFn: () =>
+      runsApi.list({
+        page,
+        page_size: PAGE_SIZE,
+        date_from: from.toISOString(),
+        date_to: to.toISOString(),
+      }),
+    refetchInterval: 5000,
+  })
+
+  // Stats: fetch all runs in period for stats calculation (first page large enough)
+  const { data: statsRuns } = useQuery({
+    queryKey: ['runs', 'dashboard-stats', period, customFrom, customTo],
+    queryFn: () =>
+      runsApi.list({
+        page: 1,
+        page_size: 100,
+        date_from: from.toISOString(),
+        date_to: to.toISOString(),
+      }),
     refetchInterval: 5000,
   })
 
@@ -66,18 +107,20 @@ export default function Dashboard() {
     },
   })
 
-  const todayRuns = recentRuns?.items.filter((r) => {
-    const d = new Date(r.created_at)
-    const now = new Date()
-    return d.toDateString() === now.toDateString()
-  }) ?? []
-
-  const successCount = todayRuns.filter((r) => r.status === 'success').length
-  const failedCount = todayRuns.filter((r) => r.status === 'failed' || r.status === 'timeout').length
-  const successRate = todayRuns.length > 0 ? Math.round((successCount / todayRuns.length) * 100) : 0
+  const periodRuns = statsRuns?.items ?? []
+  const successCount = periodRuns.filter((r) => r.status === 'success').length
+  const failedCount = periodRuns.filter((r) => r.status === 'failed' || r.status === 'timeout').length
+  const successRate = periodRuns.length > 0 ? Math.round((successCount / periodRuns.length) * 100) : 0
 
   const runningRuns = activeRuns.filter((r) => r.status === 'running')
   const pendingRuns = activeRuns.filter((r) => r.status === 'pending')
+
+  const totalPages = recentRuns ? Math.ceil(recentRuns.total / PAGE_SIZE) : 1
+
+  const periodLabel =
+    period === '2d' ? 'last 2 days' :
+    period === '5d' ? 'last 5 days' :
+    period === '10d' ? 'last 10 days' : 'custom period'
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -90,8 +133,8 @@ export default function Dashboard() {
           accentColor="violet"
         />
         <StatCard
-          title="Runs Today"
-          value={todayRuns.length}
+          title={`Runs (${periodLabel})`}
+          value={statsRuns?.total ?? 0}
           icon={Play}
           accentColor="accent"
         />
@@ -100,14 +143,14 @@ export default function Dashboard() {
           value={`${successRate}%`}
           icon={CheckCircle}
           accentColor="success"
-          subtitle={`${successCount} of ${todayRuns.length} today`}
+          subtitle={`${successCount} of ${periodRuns.length}`}
         />
         <StatCard
           title="Failed"
           value={failedCount}
           icon={XCircle}
           accentColor="warning"
-          subtitle="today"
+          subtitle={periodLabel}
         />
       </div>
 
@@ -203,16 +246,62 @@ export default function Dashboard() {
 
       {/* Recent runs */}
       <section>
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
           <h2 className="text-[14.5px] font-[800] text-ink-1">Recent Runs</h2>
-          <Link to="/scripts" className="text-[12px] text-violet font-[600] hover:text-violet/70">
-            View all scripts →
-          </Link>
+
+          {/* Period filter */}
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg overflow-hidden border border-[rgba(99,112,156,0.18)]">
+              {(['2d', '5d', '10d'] as PeriodOption[]).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => { setPeriod(p); setPage(1) }}
+                  className={`px-3 py-1.5 text-[11.5px] font-[700] transition-colors ${
+                    period === p
+                      ? 'bg-violet text-white'
+                      : 'bg-white text-ink-3 hover:text-ink-1 hover:bg-bg'
+                  }`}
+                >
+                  {p === '2d' ? '2 days' : p === '5d' ? '5 days' : '10 days'}
+                </button>
+              ))}
+              <button
+                onClick={() => { setPeriod('custom'); setPage(1) }}
+                className={`px-3 py-1.5 text-[11.5px] font-[700] flex items-center gap-1 transition-colors ${
+                  period === 'custom'
+                    ? 'bg-violet text-white'
+                    : 'bg-white text-ink-3 hover:text-ink-1 hover:bg-bg'
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5" />
+                Custom
+              </button>
+            </div>
+
+            {period === 'custom' && (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => { setCustomFrom(e.target.value); setPage(1) }}
+                  className="text-[12px] px-2 py-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50"
+                />
+                <span className="text-[11px] text-ink-3">–</span>
+                <input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => { setCustomTo(e.target.value); setPage(1) }}
+                  className="text-[12px] px-2 py-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50"
+                />
+              </div>
+            )}
+          </div>
         </div>
+
         <div className="bg-white rounded-lg border border-[rgba(99,112,156,0.12)] overflow-hidden">
           {recentRuns?.items.length === 0 ? (
             <div className="px-6 py-10 text-center text-[13px] text-ink-3">
-              No runs yet. Go to Scripts to run your first script.
+              No runs in this period.
             </div>
           ) : (
             <table className="w-full">
@@ -262,6 +351,55 @@ export default function Dashboard() {
             </table>
           )}
         </div>
+
+        {/* Pagination */}
+        {recentRuns && recentRuns.total > PAGE_SIZE && (
+          <div className="flex items-center justify-between mt-3">
+            <span className="text-[12px] text-ink-3">
+              {recentRuns.total} runs · page {page} of {totalPages}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="p-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] bg-white text-ink-2 hover:text-ink-1 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                .reduce<(number | '...')[]>((acc, p, idx, arr) => {
+                  if (idx > 0 && (arr[idx - 1] as number) < p - 1) acc.push('...')
+                  acc.push(p)
+                  return acc
+                }, [])
+                .map((p, idx) =>
+                  p === '...' ? (
+                    <span key={`ellipsis-${idx}`} className="px-1.5 text-[12px] text-ink-3">…</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p as number)}
+                      className={`min-w-[30px] h-[30px] rounded-lg border text-[12px] font-[700] transition-colors ${
+                        page === p
+                          ? 'bg-violet text-white border-violet'
+                          : 'bg-white text-ink-2 border-[rgba(99,112,156,0.18)] hover:text-ink-1'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="p-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] bg-white text-ink-2 hover:text-ink-1 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </section>
     </div>
   )
