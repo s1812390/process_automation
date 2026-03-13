@@ -342,7 +342,7 @@ export default function Scripts() {
         untagged.push(s)
       }
     }
-    const result = Object.keys(tagged)
+    const result: { tag: string | null; items: Script[] }[] = Object.keys(tagged)
       .sort()
       .map((tag) => ({ tag, items: tagged[tag] }))
     if (untagged.length > 0) result.push({ tag: null, items: untagged })
