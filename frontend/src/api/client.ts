@@ -5,6 +5,17 @@ const client = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  paramsSerializer: (params) => {
+    const qs = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        value.forEach(v => qs.append(key, String(v)))
+      } else if (value !== undefined && value !== null) {
+        qs.set(key, String(value))
+      }
+    })
+    return qs.toString()
+  },
 })
 
 client.interceptors.response.use(
