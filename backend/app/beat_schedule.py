@@ -1,8 +1,8 @@
 """
 Dynamic beat schedule that reads active scripts with cron_expression from Oracle DB.
 """
-import asyncio
-from celery.beat import PersistentScheduler
+import time
+from celery.beat import PersistentScheduler, ScheduleEntry
 from celery.schedules import crontab
 import structlog
 
@@ -21,9 +21,9 @@ class DatabaseScheduler(PersistentScheduler):
     def setup_schedule(self):
         self.install_default_entries(self.data)
         self._update_from_db()
+        self._db_last_update = time.monotonic()
 
     def tick(self, *args, **kwargs):
-        import time
         now = time.monotonic()
         if now - self._db_last_update > self.UPDATE_INTERVAL:
             self._update_from_db()
@@ -49,31 +49,33 @@ class DatabaseScheduler(PersistentScheduler):
                     )
                 ).scalars().all()
 
-                new_entries = {}
+                # Remove old script entries first
+                to_remove = [k for k in list(self.data.keys()) if k.startswith("script-")]
+                for k in to_remove:
+                    del self.data[k]
+
+                # Add updated entries as proper ScheduleEntry objects
+                count = 0
                 for script in scripts:
                     try:
                         schedule = self._parse_cron(script.cron_expression)
                         task_name = f"script-{script.id}"
-                        new_entries[task_name] = {
-                            "task": "app.tasks.execute_script",
-                            "schedule": schedule,
-                            "args": [script.id],
-                            "kwargs": {},
-                            "options": {"queue": _get_queue(script.priority)},
-                        }
+                        entry = ScheduleEntry(
+                            name=task_name,
+                            task="app.tasks.execute_script",
+                            schedule=schedule,
+                            args=(script.id,),
+                            kwargs={},
+                            options={"queue": _get_queue(script.priority)},
+                            app=self.app,
+                        )
+                        self.data[task_name] = entry
+                        count += 1
                     except Exception as e:
                         logger.warning("Invalid cron expression", script_id=script.id, error=str(e))
 
-                # Remove old script entries
-                to_remove = [k for k in self.data.keys() if k.startswith("script-")]
-                for k in to_remove:
-                    del self.data[k]
-
-                # Add updated entries
-                for name, entry_data in new_entries.items():
-                    self.update_entry(name, entry_data)
-
-                logger.info("Beat schedule updated", count=len(new_entries))
+                self.data.sync()
+                logger.info("Beat schedule updated", count=count)
             finally:
                 session.close()
                 engine.dispose()
