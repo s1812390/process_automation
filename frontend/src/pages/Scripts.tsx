@@ -268,12 +268,12 @@ function ScriptTable({
   return (
     <table className="w-full" style={{ tableLayout: 'fixed' }}>
       <colgroup>
-        <col style={{ width: '34%' }} />
-        <col style={{ width: '20%' }} />
+        <col style={{ width: '27%' }} />
+        <col style={{ width: '18%' }} />
         <col style={{ width: '8%' }} />
         <col style={{ width: '23%' }} />
-        <col style={{ width: '10%' }} />
-        <col style={{ width: '5%' }} />
+        <col style={{ width: '16%' }} />
+        <col style={{ width: '8%' }} />
       </colgroup>
       <thead>
         <tr className="bg-[rgba(240,242,247,0.6)]">
