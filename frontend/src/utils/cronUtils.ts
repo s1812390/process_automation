@@ -1,6 +1,6 @@
 /**
  * Computes the next scheduled run time for a 5-part cron expression.
- * Handles: *, star/step (*/n), comma lists, ranges, and literal values.
+ * Handles: asterisk, step (every N), comma lists, ranges, and literal values.
  * The calculation is done in the given IANA timezone.
  */
 
