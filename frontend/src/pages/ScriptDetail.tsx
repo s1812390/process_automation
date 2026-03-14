@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Play, Trash2, Plus, Mail, MessageCircle, X, ChevronLeft, Copy, RefreshCw, Check, AlertTriangle, Send } from 'lucide-react'
+import { Play, Trash2, Plus, Mail, MessageCircle, X, ChevronLeft, ChevronRight, Copy, RefreshCw, Check, AlertTriangle, Send } from 'lucide-react'
 import { scriptsApi, alertsApi, AlertConfigCreate } from '../api/scripts'
 import { runsApi } from '../api/runs'
 import { ScriptEditor } from '../components/ScriptEditor'
 import { CronInput } from '../components/CronInput'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/Toast'
-import { formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow, subDays, format } from 'date-fns'
 import { clsx } from 'clsx'
 
 type Tab = 'editor' | 'requirements' | 'settings' | 'parameters' | 'alerts' | 'history'
@@ -43,9 +43,20 @@ export default function ScriptDetail() {
     enabled: activeTab === 'alerts',
   })
 
+  const HISTORY_PAGE_SIZE = 15
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historyDateFrom, setHistoryDateFrom] = useState(() => format(subDays(new Date(), 30), 'yyyy-MM-dd'))
+  const [historyDateTo, setHistoryDateTo] = useState(() => format(new Date(), 'yyyy-MM-dd'))
+
   const { data: history } = useQuery({
-    queryKey: ['runs', { script_id: scriptId }],
-    queryFn: () => runsApi.list({ script_id: scriptId, page_size: 50 }),
+    queryKey: ['runs', { script_id: scriptId, historyPage, historyDateFrom, historyDateTo }],
+    queryFn: () => runsApi.list({
+      script_id: scriptId,
+      page: historyPage,
+      page_size: HISTORY_PAGE_SIZE,
+      date_from: historyDateFrom ? new Date(historyDateFrom + 'T00:00:00').toISOString() : undefined,
+      date_to: historyDateTo ? new Date(historyDateTo + 'T23:59:59').toISOString() : undefined,
+    }),
     enabled: activeTab === 'history',
     refetchInterval: activeTab === 'history' ? 5000 : false,
   })
@@ -655,36 +666,115 @@ export default function ScriptDetail() {
 
       {/* History */}
       {activeTab === 'history' && (
-        <div className="bg-white rounded-lg border border-[rgba(99,112,156,0.12)] overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-[rgba(240,242,247,0.6)]">
-                {['Status', 'Trigger', 'Attempt', 'Duration', 'Started', ''].map(h => (
-                  <th key={h} className="text-left px-4 py-2.5 text-[10.5px] font-[700] uppercase tracking-[0.9px] text-ink-3">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {history?.items.map((run) => (
-                <tr key={run.id} className="border-t border-[rgba(99,112,156,0.06)] hover:bg-accent/[0.025]">
-                  <td className="px-4 py-3"><StatusBadge status={run.status} /></td>
-                  <td className="px-4 py-3">
-                    <span className="text-[11px] font-mono font-[700] text-ink-3 bg-bg px-1.5 py-0.5 rounded">{run.triggered_by}</span>
-                  </td>
-                  <td className="px-4 py-3 text-[12px] font-mono text-ink-3">#{run.attempt_number}</td>
-                  <td className="px-4 py-3 text-[13px] font-mono text-ink-2">
-                    {run.duration_ms ? `${(run.duration_ms / 1000).toFixed(1)}s` : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-[12px] text-ink-3">
-                    {run.started_at ? formatDistanceToNow(new Date(run.started_at), { addSuffix: true }) : '—'}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link to={`/runs/${run.id}`} className="text-[11px] font-[700] text-violet hover:text-violet/70">Logs</Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-3">
+          {/* Date filter */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-[700] text-ink-3 uppercase tracking-[0.8px]">Period</span>
+            <input
+              type="date"
+              value={historyDateFrom}
+              onChange={(e) => { setHistoryDateFrom(e.target.value); setHistoryPage(1) }}
+              className="text-[12px] px-2 py-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50"
+            />
+            <span className="text-[11px] text-ink-3">–</span>
+            <input
+              type="date"
+              value={historyDateTo}
+              onChange={(e) => { setHistoryDateTo(e.target.value); setHistoryPage(1) }}
+              className="text-[12px] px-2 py-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50"
+            />
+            {history && (
+              <span className="text-[11px] text-ink-3 ml-1">{history.total} run{history.total !== 1 ? 's' : ''}</span>
+            )}
+          </div>
+
+          <div className="bg-white rounded-lg border border-[rgba(99,112,156,0.12)] overflow-hidden">
+            {!history?.items.length ? (
+              <div className="px-6 py-10 text-center text-[13px] text-ink-3">No runs in this period.</div>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-[rgba(240,242,247,0.6)]">
+                    {['Status', 'Trigger', 'Attempt', 'Duration', 'Started', ''].map(h => (
+                      <th key={h} className="text-left px-4 py-2.5 text-[10.5px] font-[700] uppercase tracking-[0.9px] text-ink-3">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.items.map((run) => (
+                    <tr key={run.id} className="border-t border-[rgba(99,112,156,0.06)] hover:bg-accent/[0.025]">
+                      <td className="px-4 py-3"><StatusBadge status={run.status} /></td>
+                      <td className="px-4 py-3">
+                        <span className="text-[11px] font-mono font-[700] text-ink-3 bg-bg px-1.5 py-0.5 rounded">{run.triggered_by}</span>
+                      </td>
+                      <td className="px-4 py-3 text-[12px] font-mono text-ink-3">#{run.attempt_number}</td>
+                      <td className="px-4 py-3 text-[13px] font-mono text-ink-2">
+                        {run.duration_ms ? `${(run.duration_ms / 1000).toFixed(1)}s` : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-[12px] text-ink-3">
+                        {run.started_at ? formatDistanceToNow(new Date(run.started_at), { addSuffix: true }) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link to={`/runs/${run.id}`} className="text-[11px] font-[700] text-violet hover:text-violet/70">Logs</Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* Pagination */}
+          {history && history.total > HISTORY_PAGE_SIZE && (() => {
+            const totalHistoryPages = Math.ceil(history.total / HISTORY_PAGE_SIZE)
+            return (
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] text-ink-3">
+                  page {historyPage} of {totalHistoryPages}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                    disabled={historyPage === 1}
+                    className="p-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] bg-white text-ink-2 hover:text-ink-1 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  {Array.from({ length: totalHistoryPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalHistoryPages || Math.abs(p - historyPage) <= 1)
+                    .reduce<(number | '...')[]>((acc, p, idx, arr) => {
+                      if (idx > 0 && (arr[idx - 1] as number) < p - 1) acc.push('...')
+                      acc.push(p)
+                      return acc
+                    }, [])
+                    .map((p, idx) =>
+                      p === '...' ? (
+                        <span key={`e-${idx}`} className="px-1.5 text-[12px] text-ink-3">…</span>
+                      ) : (
+                        <button
+                          key={p}
+                          onClick={() => setHistoryPage(p as number)}
+                          className={`min-w-[30px] h-[30px] rounded-lg border text-[12px] font-[700] transition-colors ${
+                            historyPage === p
+                              ? 'bg-violet text-white border-violet'
+                              : 'bg-white text-ink-2 border-[rgba(99,112,156,0.18)] hover:text-ink-1'
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      )
+                    )}
+                  <button
+                    onClick={() => setHistoryPage((p) => Math.min(totalHistoryPages, p + 1))}
+                    disabled={historyPage === totalHistoryPages}
+                    className="p-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] bg-white text-ink-2 hover:text-ink-1 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
         </div>
       )}
     </div>

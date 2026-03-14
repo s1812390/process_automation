@@ -134,6 +134,9 @@ export default function Dashboard() {
     return ids.length > 0 ? ids : [-1] // -1 ensures empty result when no scripts have this tag
   }, [selectedRunTag, scripts])
 
+  const isSearching = runsSearch.trim().length > 0
+
+  // Normal paginated query (used when not searching)
   const { data: recentRuns } = useQuery({
     queryKey: ['runs', 'dashboard', period, customFrom, customTo, page, selectedRunTag],
     queryFn: () =>
@@ -144,8 +147,28 @@ export default function Dashboard() {
         date_to: to.toISOString(),
         script_ids: scriptIdsForTag,
       }),
-    refetchInterval: 5000,
+    enabled: !isSearching,
+    refetchInterval: !isSearching ? 5000 : false,
   })
+
+  // Large fetch for client-side search + pagination
+  const { data: searchRuns } = useQuery({
+    queryKey: ['runs', 'dashboard-search', period, customFrom, customTo, selectedRunTag],
+    queryFn: () =>
+      runsApi.list({
+        page: 1,
+        page_size: 1000,
+        date_from: from.toISOString(),
+        date_to: to.toISOString(),
+        script_ids: scriptIdsForTag,
+      }),
+    enabled: isSearching,
+    refetchInterval: isSearching ? 5000 : false,
+  })
+
+  const [searchPage, setSearchPage] = useState(1)
+  // Reset search page when query changes
+  useMemo(() => { setSearchPage(1) }, [runsSearch, period, customFrom, customTo, selectedRunTag]) // eslint-disable-line
 
   // Stats: fetch all runs in period for stats calculation (first page large enough)
   const { data: statsRuns } = useQuery({
@@ -198,8 +221,28 @@ export default function Dashboard() {
   const runningRuns = activeRuns.filter((r) => r.status === 'running')
   const pendingRuns = activeRuns.filter((r) => r.status === 'pending')
 
-  const recentItems = recentRuns?.items ?? []
-  const totalPages = recentRuns ? Math.ceil(recentRuns.total / PAGE_SIZE) : 1
+  const allSearchFiltered = useMemo(() => {
+    if (!isSearching) return []
+    const q = runsSearch.trim().toLowerCase()
+    return (searchRuns?.items ?? []).filter((r) =>
+      (r.script_name || '').toLowerCase().includes(q)
+    )
+  }, [isSearching, runsSearch, searchRuns])
+
+  const searchTotalPages = Math.max(1, Math.ceil(allSearchFiltered.length / PAGE_SIZE))
+
+  const recentItems = isSearching
+    ? allSearchFiltered.slice((searchPage - 1) * PAGE_SIZE, searchPage * PAGE_SIZE)
+    : (recentRuns?.items ?? [])
+
+  const totalPages = isSearching
+    ? searchTotalPages
+    : (recentRuns ? Math.ceil(recentRuns.total / PAGE_SIZE) : 1)
+
+  const activePage = isSearching ? searchPage : page
+  const setActivePage = isSearching
+    ? (p: number) => setSearchPage(Math.min(Math.max(1, p), searchTotalPages))
+    : (p: number) => setPage(Math.min(Math.max(1, p), totalPages))
 
   const periodLabel =
     period === '2d' ? 'last 2 days' :
@@ -425,15 +468,9 @@ export default function Dashboard() {
         </div>
 
         <div className="bg-white rounded-lg border border-[rgba(99,112,156,0.12)] overflow-hidden">
-          {(() => {
-            const displayItems = runsSearch.trim()
-              ? recentItems.filter((r) =>
-                  (r.script_name || '').toLowerCase().includes(runsSearch.trim().toLowerCase())
-                )
-              : recentItems
-            return displayItems.length === 0 ? (
+          {recentItems.length === 0 ? (
             <div className="px-6 py-10 text-center text-[13px] text-ink-3">
-              {runsSearch.trim() ? 'No matching runs.' : 'No runs in this period.'}
+              {isSearching ? 'No matching runs.' : 'No runs in this period.'}
             </div>
           ) : (
             <table className="w-full">
@@ -449,7 +486,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {displayItems.map((run) => (
+                {recentItems.map((run) => (
                   <tr key={run.id} className="border-t border-[rgba(99,112,156,0.06)] hover:bg-accent/[0.025]">
                     <td className="px-4 py-3">
                       <Link to={`/scripts/${run.script_id}`} className="text-[13.5px] font-[600] text-ink-1 hover:text-accent">
@@ -492,26 +529,25 @@ export default function Dashboard() {
                 ))}
               </tbody>
             </table>
-          )
-          })()}
+          )}
         </div>
 
         {/* Pagination */}
-        {recentRuns && recentRuns.total > PAGE_SIZE && (
+        {totalPages > 1 && (
           <div className="flex items-center justify-between mt-3">
             <span className="text-[12px] text-ink-3">
-              {recentRuns.total} runs · page {page} of {totalPages}
+              {isSearching ? allSearchFiltered.length : (recentRuns?.total ?? 0)} runs · page {activePage} of {totalPages}
             </span>
             <div className="flex items-center gap-1">
               <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
+                onClick={() => setActivePage(activePage - 1)}
+                disabled={activePage === 1}
                 className="p-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] bg-white text-ink-2 hover:text-ink-1 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                .filter((p) => p === 1 || p === totalPages || Math.abs(p - activePage) <= 1)
                 .reduce<(number | '...')[]>((acc, p, idx, arr) => {
                   if (idx > 0 && (arr[idx - 1] as number) < p - 1) acc.push('...')
                   acc.push(p)
@@ -523,9 +559,9 @@ export default function Dashboard() {
                   ) : (
                     <button
                       key={p}
-                      onClick={() => setPage(p as number)}
+                      onClick={() => setActivePage(p as number)}
                       className={`min-w-[30px] h-[30px] rounded-lg border text-[12px] font-[700] transition-colors ${
-                        page === p
+                        activePage === p
                           ? 'bg-violet text-white border-violet'
                           : 'bg-white text-ink-2 border-[rgba(99,112,156,0.18)] hover:text-ink-1'
                       }`}
@@ -535,8 +571,8 @@ export default function Dashboard() {
                   )
                 )}
               <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
+                onClick={() => setActivePage(activePage + 1)}
+                disabled={activePage === totalPages}
                 className="p-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] bg-white text-ink-2 hover:text-ink-1 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />

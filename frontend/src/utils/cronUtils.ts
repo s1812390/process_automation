@@ -108,6 +108,11 @@ export function describeCron(expr: string): string {
 
   const [min, hour, dom, month, dow] = parts
 
+  // Every minute
+  if (min === '*' && hour === '*' && dom === '*' && month === '*' && dow === '*') {
+    return 'Every minute'
+  }
+
   const timeStr =
     hour !== '*' && min !== '*' && !min.startsWith('*/')
       ? `at ${String(parseInt(hour, 10)).padStart(2, '0')}:${String(parseInt(min, 10)).padStart(2, '0')}`
@@ -119,8 +124,8 @@ export function describeCron(expr: string): string {
     return `Every ${n} min`
   }
 
-  // Every hour at :MM
-  if (hour === '*' && dom === '*' && month === '*' && dow === '*' && !min.startsWith('*/')) {
+  // Every hour at :MM (specific minute, all hours)
+  if (min !== '*' && !min.startsWith('*/') && hour === '*' && dom === '*' && month === '*' && dow === '*') {
     return `Every hour at :${String(parseInt(min, 10)).padStart(2, '0')}`
   }
 

@@ -1,8 +1,42 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Pencil, Trash2, X, Check, AlertTriangle } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Check, AlertTriangle, Eye, EyeOff, Copy } from 'lucide-react'
 import { variablesApi, GlobalVar } from '../api/variables'
 import { useToast } from '../components/Toast'
+
+function MaskedValue({ value }: { value: string }) {
+  const [revealed, setRevealed] = useState(false)
+  const toast = useToast()
+
+  const copy = () => {
+    navigator.clipboard.writeText(value).then(
+      () => toast('Copied to clipboard', 'success'),
+      () => toast('Failed to copy', 'error'),
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1 group">
+      <span className="text-[13px] font-mono text-ink-2 min-w-0 truncate max-w-[260px]">
+        {revealed ? value : '••••••••••••'}
+      </span>
+      <button
+        onClick={() => setRevealed((r) => !r)}
+        title={revealed ? 'Hide' : 'Reveal'}
+        className="p-1 rounded text-ink-4 hover:text-ink-2 opacity-0 group-hover:opacity-100 transition-all"
+      >
+        {revealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+      </button>
+      <button
+        onClick={copy}
+        title="Copy value"
+        className="p-1 rounded text-ink-4 hover:text-ink-2 opacity-0 group-hover:opacity-100 transition-all"
+      >
+        <Copy className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  )
+}
 
 export default function VariablesPage() {
   const queryClient = useQueryClient()
@@ -10,9 +44,11 @@ export default function VariablesPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState('')
   const [editDesc, setEditDesc] = useState('')
+  const [editValueRevealed, setEditValueRevealed] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
   const [newKey, setNewKey] = useState('')
   const [newValue, setNewValue] = useState('')
+  const [newValueRevealed, setNewValueRevealed] = useState(false)
   const [newDesc, setNewDesc] = useState('')
   const [varToDelete, setVarToDelete] = useState<GlobalVar | null>(null)
 
@@ -29,6 +65,7 @@ export default function VariablesPage() {
       setNewKey('')
       setNewValue('')
       setNewDesc('')
+      setNewValueRevealed(false)
       toast('Variable added successfully')
     },
     onError: () => toast('Failed to add variable', 'error'),
@@ -40,6 +77,7 @@ export default function VariablesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['variables'] })
       setEditingId(null)
+      setEditValueRevealed(false)
       toast('Variable updated')
     },
     onError: () => toast('Failed to update variable', 'error'),
@@ -59,6 +97,7 @@ export default function VariablesPage() {
     setEditingId(v.id)
     setEditValue(v.value)
     setEditDesc(v.description || '')
+    setEditValueRevealed(false)
   }
 
   const saveEdit = (id: number) => {
@@ -143,12 +182,22 @@ export default function VariablesPage() {
             </div>
             <div>
               <label className="block text-[11px] font-[700] text-ink-2 mb-1">Value</label>
-              <input
-                value={newValue}
-                onChange={(e) => setNewValue(e.target.value)}
-                placeholder="secret_value"
-                className="w-full px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
-              />
+              <div className="relative">
+                <input
+                  type={newValueRevealed ? 'text' : 'password'}
+                  value={newValue}
+                  onChange={(e) => setNewValue(e.target.value)}
+                  placeholder="secret_value"
+                  className="w-full px-3 py-2 pr-8 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
+                />
+                <button
+                  type="button"
+                  onClick={() => setNewValueRevealed((r) => !r)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink-1"
+                >
+                  {newValueRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
             </div>
             <div>
               <label className="block text-[11px] font-[700] text-ink-2 mb-1">Description (optional)</label>
@@ -207,14 +256,24 @@ export default function VariablesPage() {
                   </td>
                   <td className="px-4 py-3">
                     {editingId === v.id ? (
-                      <input
-                        value={editValue}
-                        onChange={(e) => setEditValue(e.target.value)}
-                        className="w-full px-2 py-1 rounded border border-violet text-[13px] text-ink-1 focus:outline-none"
-                        autoFocus
-                      />
+                      <div className="relative">
+                        <input
+                          type={editValueRevealed ? 'text' : 'password'}
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          className="w-full px-2 py-1 pr-8 rounded border border-violet text-[13px] text-ink-1 focus:outline-none"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setEditValueRevealed((r) => !r)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink-1"
+                        >
+                          {editValueRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
                     ) : (
-                      <span className="text-[13px] font-mono text-ink-2">{v.value}</span>
+                      <MaskedValue value={v.value} />
                     )}
                   </td>
                   <td className="px-4 py-3">
