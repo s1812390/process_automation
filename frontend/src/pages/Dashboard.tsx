@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Code2, Play, CheckCircle, XCircle, ChevronLeft, ChevronRight, Calendar, Tag, Search, AlertTriangle } from 'lucide-react'
 import { runsApi, Run } from '../api/runs'
@@ -135,40 +135,25 @@ export default function Dashboard() {
   }, [selectedRunTag, scripts])
 
   const isSearching = runsSearch.trim().length > 0
-
-  // Normal paginated query (used when not searching)
-  const { data: recentRuns } = useQuery({
-    queryKey: ['runs', 'dashboard', period, customFrom, customTo, page, selectedRunTag],
-    queryFn: () =>
-      runsApi.list({
-        page,
-        page_size: PAGE_SIZE,
-        date_from: from.toISOString(),
-        date_to: to.toISOString(),
-        script_ids: scriptIdsForTag,
-      }),
-    enabled: !isSearching,
-    refetchInterval: !isSearching ? 5000 : false,
-  })
-
-  // Large fetch for client-side search + pagination
-  const { data: searchRuns } = useQuery({
-    queryKey: ['runs', 'dashboard-search', period, customFrom, customTo, selectedRunTag],
-    queryFn: () =>
-      runsApi.list({
-        page: 1,
-        page_size: 1000,
-        date_from: from.toISOString(),
-        date_to: to.toISOString(),
-        script_ids: scriptIdsForTag,
-      }),
-    enabled: isSearching,
-    refetchInterval: isSearching ? 5000 : false,
-  })
-
   const [searchPage, setSearchPage] = useState(1)
-  // Reset search page when query changes
-  useMemo(() => { setSearchPage(1) }, [runsSearch, period, customFrom, customTo, selectedRunTag]) // eslint-disable-line
+
+  // Reset search page when search term or filters change
+  useEffect(() => { setSearchPage(1) }, [runsSearch, period, customFrom, customTo, selectedRunTag])
+
+  // Single query: large page when searching (client-side filter), paginated otherwise
+  const { data: runsData } = useQuery({
+    queryKey: ['runs', 'dashboard', period, customFrom, customTo, isSearching ? 'search' : page, selectedRunTag],
+    queryFn: () =>
+      runsApi.list({
+        page: isSearching ? 1 : page,
+        page_size: isSearching ? 1000 : PAGE_SIZE,
+        date_from: from.toISOString(),
+        date_to: to.toISOString(),
+        script_ids: scriptIdsForTag,
+      }),
+    refetchInterval: 5000,
+    placeholderData: keepPreviousData,
+  })
 
   // Stats: fetch all runs in period for stats calculation (first page large enough)
   const { data: statsRuns } = useQuery({
@@ -222,22 +207,22 @@ export default function Dashboard() {
   const pendingRuns = activeRuns.filter((r) => r.status === 'pending')
 
   const allSearchFiltered = useMemo(() => {
-    if (!isSearching) return []
+    if (!isSearching) return runsData?.items ?? []
     const q = runsSearch.trim().toLowerCase()
-    return (searchRuns?.items ?? []).filter((r) =>
+    return (runsData?.items ?? []).filter((r) =>
       (r.script_name || '').toLowerCase().includes(q)
     )
-  }, [isSearching, runsSearch, searchRuns])
+  }, [isSearching, runsSearch, runsData])
 
   const searchTotalPages = Math.max(1, Math.ceil(allSearchFiltered.length / PAGE_SIZE))
 
   const recentItems = isSearching
     ? allSearchFiltered.slice((searchPage - 1) * PAGE_SIZE, searchPage * PAGE_SIZE)
-    : (recentRuns?.items ?? [])
+    : (runsData?.items ?? [])
 
   const totalPages = isSearching
     ? searchTotalPages
-    : (recentRuns ? Math.ceil(recentRuns.total / PAGE_SIZE) : 1)
+    : (runsData ? Math.ceil(runsData.total / PAGE_SIZE) : 1)
 
   const activePage = isSearching ? searchPage : page
   const setActivePage = isSearching
@@ -536,7 +521,7 @@ export default function Dashboard() {
         {totalPages > 1 && (
           <div className="flex items-center justify-between mt-3">
             <span className="text-[12px] text-ink-3">
-              {isSearching ? allSearchFiltered.length : (recentRuns?.total ?? 0)} runs · page {activePage} of {totalPages}
+              {isSearching ? allSearchFiltered.length : (runsData?.total ?? 0)} runs · page {activePage} of {totalPages}
             </span>
             <div className="flex items-center gap-1">
               <button
