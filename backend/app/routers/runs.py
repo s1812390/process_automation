@@ -34,7 +34,7 @@ async def _enrich_run(run: ScriptRun, session: AsyncSession) -> dict:
 @router.get("", response_model=RunListResponse)
 async def list_runs(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=2000),
     script_id: Optional[int] = None,
     script_ids: Optional[List[int]] = Query(None),
     status: Optional[str] = None,
