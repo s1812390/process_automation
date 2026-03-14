@@ -1,10 +1,12 @@
+import { useState } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronLeft, Square } from 'lucide-react'
+import { ChevronLeft, Square, AlertTriangle } from 'lucide-react'
 import { runsApi } from '../api/runs'
 import { StatusBadge } from '../components/StatusBadge'
 import { LogViewer } from '../components/LogViewer'
 import { useTimezone } from '../context/TimezoneContext'
+import { useToast } from '../components/Toast'
 
 function formatDuration(ms?: number): string {
   if (!ms) return '—'
@@ -13,12 +15,62 @@ function formatDuration(ms?: number): string {
   return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`
 }
 
+function ConfirmKillModal({
+  onConfirm,
+  onCancel,
+  isPending,
+}: {
+  onConfirm: () => void
+  onCancel: () => void
+  isPending: boolean
+}) {
+  return (
+    <div className="fixed inset-0 bg-ink-1/30 backdrop-blur-md flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
+        <div className="px-6 py-5 border-b border-[rgba(99,112,156,0.1)]">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-danger-dim flex items-center justify-center flex-shrink-0">
+              <AlertTriangle className="w-4.5 h-4.5 text-danger" />
+            </div>
+            <div>
+              <h2 className="text-[15px] font-[800] text-ink-1">Kill Process</h2>
+              <p className="text-[12px] text-ink-3 mt-0.5">This will immediately terminate the script</p>
+            </div>
+          </div>
+        </div>
+        <div className="px-6 py-5">
+          <p className="text-[13px] text-ink-2">
+            Are you sure you want to kill this run? The action will be logged.
+          </p>
+        </div>
+        <div className="px-6 pb-5 flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-2 rounded-lg text-[13px] font-[700] bg-white text-ink-2 border border-[rgba(99,112,156,0.2)] hover:bg-bg active:scale-[0.97] transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isPending}
+            className="flex-1 px-4 py-2 rounded-lg text-[13px] font-[700] bg-danger text-white hover:bg-[#a01227] active:scale-[0.97] transition-all disabled:opacity-50"
+          >
+            {isPending ? 'Killing...' : 'Yes, Kill'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function RunDetail() {
   const { id } = useParams<{ id: string }>()
   const runId = Number(id)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { formatDateTime } = useTimezone()
+  const toast = useToast()
+  const [showKillConfirm, setShowKillConfirm] = useState(false)
 
   const { data: run, isLoading } = useQuery({
     queryKey: ['runs', runId],
@@ -37,7 +89,10 @@ export default function RunDetail() {
     mutationFn: () => runsApi.cancel(runId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['runs', runId] })
+      setShowKillConfirm(false)
+      toast('Process killed', 'success')
     },
+    onError: () => toast('Failed to kill process', 'error'),
   })
 
   if (isLoading || !run) {
@@ -96,8 +151,7 @@ export default function RunDetail() {
         </div>
         {isLive && (
           <button
-            onClick={() => cancelMutation.mutate()}
-            disabled={cancelMutation.isPending}
+            onClick={() => setShowKillConfirm(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-[700] bg-danger-dim text-danger border border-danger/15 hover:bg-danger/10 active:scale-[0.97] transition-all"
           >
             <Square className="w-4 h-4" />
@@ -128,6 +182,14 @@ export default function RunDetail() {
         initialLogs={staticLogs || []}
         logsLoading={logsLoading}
       />
+
+      {showKillConfirm && (
+        <ConfirmKillModal
+          onConfirm={() => cancelMutation.mutate()}
+          onCancel={() => setShowKillConfirm(false)}
+          isPending={cancelMutation.isPending}
+        />
+      )}
     </div>
   )
 }

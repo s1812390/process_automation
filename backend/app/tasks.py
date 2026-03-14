@@ -297,9 +297,10 @@ def _handle_retry_or_alert(session, script, run, status: str):
 
 
 def _send_alert(session, script, run, status: str):
-    from app.models import AlertConfig
+    from app.models import AlertConfig, AppSetting
     from app.services.alerts import send_alert
 
+    # Per-script alerts
     alerts = session.execute(
         __import__("sqlalchemy").select(AlertConfig).where(AlertConfig.script_id == script.id)
     ).scalars().all()
@@ -318,6 +319,35 @@ def _send_alert(session, script, run, status: str):
                     script_name=script.name,
                     run_id=run.id,
                     status=status,
+                    tag=script.tag,
                 )
             except Exception as e:
                 logger.error("Alert send failed", error=str(e))
+
+    # Global admin alerts
+    def _get_setting(key):
+        s = session.get(AppSetting, key)
+        return s.value if s and s.value else None
+
+    global_channel = _get_setting("global_alert_channel")
+    global_dest = _get_setting("global_alert_destination")
+    global_on_failure = (_get_setting("global_alert_on_failure") or "").lower() == "true"
+    global_on_timeout = (_get_setting("global_alert_on_timeout") or "").lower() == "true"
+
+    if global_channel and global_dest:
+        should_send_global = (
+            (status == "failed" and global_on_failure)
+            or (status == "timeout" and global_on_timeout)
+        )
+        if should_send_global:
+            try:
+                send_alert(
+                    channel=global_channel,
+                    destination=global_dest,
+                    script_name=script.name,
+                    run_id=run.id,
+                    status=status,
+                    tag=script.tag,
+                )
+            except Exception as e:
+                logger.error("Global alert send failed", error=str(e))

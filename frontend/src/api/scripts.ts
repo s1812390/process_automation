@@ -75,4 +75,5 @@ export interface AlertConfigCreate {
 
 export const alertsApi = {
   delete: (id: number) => client.delete(`/alerts/${id}`),
+  test: (id: number) => client.post<{ ok: boolean; message: string }>(`/alerts/${id}/test`).then(r => r.data),
 }

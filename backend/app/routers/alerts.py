@@ -10,6 +10,33 @@ from app.schemas.alert import AlertConfigCreate, AlertConfigResponse
 router = APIRouter(tags=["alerts"])
 
 
+@router.post("/api/alerts/{alert_id}/test", status_code=200)
+async def test_alert(alert_id: int, session: AsyncSession = Depends(get_db)):
+    from app.services.alerts import send_alert
+
+    alert = await session.get(AlertConfig, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    script = await session.get(Script, alert.script_id)
+    if not script:
+        raise HTTPException(status_code=404, detail="Script not found")
+
+    try:
+        send_alert(
+            channel=alert.channel,
+            destination=alert.destination,
+            script_name=script.name,
+            run_id=0,
+            status="test",
+            tag=script.tag,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to send test alert: {str(e)}")
+
+    return {"ok": True, "message": f"Test alert sent to {alert.destination}"}
+
+
 @router.get("/api/scripts/{script_id}/alerts", response_model=List[AlertConfigResponse])
 async def get_script_alerts(script_id: int, session: AsyncSession = Depends(get_db)):
     script = await session.get(Script, script_id)

@@ -7,6 +7,11 @@ export interface Settings {
   default_cpu_cores?: number
   default_ram_limit_mb?: number
   timezone: string
+  // Global admin alerts
+  global_alert_on_failure: boolean
+  global_alert_on_timeout: boolean
+  global_alert_channel: string | null
+  global_alert_destination: string | null
 }
 
 export const settingsApi = {

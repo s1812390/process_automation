@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Plus, Play, Edit2, Trash2, ToggleLeft, ToggleRight, AlertCircle, Tag, AlertTriangle } from 'lucide-react'
+import { Plus, Play, Edit2, Trash2, ToggleLeft, ToggleRight, AlertCircle, Tag, AlertTriangle, Search } from 'lucide-react'
 import { scriptsApi, Script, ScriptCreate } from '../api/scripts'
 import { StatusBadge } from '../components/StatusBadge'
 import { ScriptEditor } from '../components/ScriptEditor'
@@ -9,6 +9,8 @@ import { CronInput } from '../components/CronInput'
 import { useToast } from '../components/Toast'
 import { formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
+import { getNextCronRun, describeCron } from '../utils/cronUtils'
+import { useTimezone } from '../context/TimezoneContext'
 
 function ConfirmDeleteModal({
   script,
@@ -213,15 +215,23 @@ function ScriptTableRows({
   toggleMutation,
   runMutation,
   onDelete,
+  timezone,
+  formatDateTime,
 }: {
   scripts: Script[]
   toggleMutation: { mutate: (id: number) => void; isPending: boolean }
   runMutation: { mutate: (id: number) => void; isPending: boolean }
   onDelete: (script: Script) => void
+  timezone: string
+  formatDateTime: (d: Date | string) => string
 }) {
   return (
     <>
-      {scripts.map((script) => (
+      {scripts.map((script) => {
+        const nextRun = script.cron_expression && script.is_active
+          ? getNextCronRun(script.cron_expression, timezone)
+          : null
+        return (
         <tr key={script.id} className="border-t border-[rgba(99,112,156,0.06)] hover:bg-accent/[0.025]">
           <td className="px-4 py-3">
             <Link
@@ -236,9 +246,16 @@ function ScriptTableRows({
           </td>
           <td className="px-4 py-3">
             {script.cron_expression ? (
-              <span className="text-[11px] font-mono font-[700] text-ink-2 bg-violet-dim px-2 py-0.5 rounded">
-                {script.cron_expression}
-              </span>
+              <div>
+                <span className="text-[11px] font-mono font-[700] text-ink-2 bg-violet-dim px-2 py-0.5 rounded">
+                  {describeCron(script.cron_expression)}
+                </span>
+                {nextRun && (
+                  <div className="text-[10.5px] text-ink-3 mt-1">
+                    Next: {formatDateTime(nextRun)}
+                  </div>
+                )}
+              </div>
             ) : (
               <span className="text-[11px] text-ink-3">Manual</span>
             )}
@@ -303,7 +320,8 @@ function ScriptTableRows({
             </div>
           </td>
         </tr>
-      ))}
+        )
+      })}
     </>
   )
 }
@@ -313,19 +331,23 @@ function ScriptTable({
   toggleMutation,
   runMutation,
   onDelete,
+  timezone,
+  formatDateTime,
 }: {
   scripts: Script[]
   toggleMutation: { mutate: (id: number) => void; isPending: boolean }
   runMutation: { mutate: (id: number) => void; isPending: boolean }
   onDelete: (script: Script) => void
+  timezone: string
+  formatDateTime: (d: Date | string) => string
 }) {
   return (
     <table className="w-full" style={{ tableLayout: 'fixed' }}>
       <colgroup>
         <col style={{ width: '27%' }} />
-        <col style={{ width: '18%' }} />
+        <col style={{ width: '20%' }} />
         <col style={{ width: '8%' }} />
-        <col style={{ width: '23%' }} />
+        <col style={{ width: '21%' }} />
         <col style={{ width: '16%' }} />
         <col style={{ width: '8%' }} />
       </colgroup>
@@ -345,6 +367,8 @@ function ScriptTable({
           toggleMutation={toggleMutation}
           runMutation={runMutation}
           onDelete={onDelete}
+          timezone={timezone}
+          formatDateTime={formatDateTime}
         />
       </tbody>
     </table>
@@ -355,8 +379,10 @@ export default function Scripts() {
   const [showCreate, setShowCreate] = useState(false)
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
   const [scriptToDelete, setScriptToDelete] = useState<Script | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const queryClient = useQueryClient()
   const toast = useToast()
+  const { timezone, formatDateTime } = useTimezone()
 
   const { data: scripts = [], isLoading } = useQuery({
     queryKey: ['scripts'],
@@ -398,14 +424,29 @@ export default function Scripts() {
     return Array.from(tags).sort()
   }, [scripts])
 
+  // Filter by search query
+  const filteredScripts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    if (!q) return scripts
+    return scripts.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        (s.description || '').toLowerCase().includes(q)
+    )
+  }, [scripts, searchQuery])
+
   // Group scripts: tagged groups first (alpha), untagged last
   const groups = useMemo(() => {
+    const source = selectedTag
+      ? filteredScripts.filter((s) => s.tag === selectedTag)
+      : filteredScripts
+
     if (selectedTag) {
-      return [{ tag: selectedTag, items: scripts.filter((s) => s.tag === selectedTag) }]
+      return [{ tag: selectedTag, items: source }]
     }
     const tagged: Record<string, Script[]> = {}
     const untagged: Script[] = []
-    for (const s of scripts) {
+    for (const s of source) {
       if (s.tag) {
         if (!tagged[s.tag]) tagged[s.tag] = []
         tagged[s.tag].push(s)
@@ -418,14 +459,14 @@ export default function Scripts() {
       .map((tag) => ({ tag, items: tagged[tag] }))
     if (untagged.length > 0) result.push({ tag: null, items: untagged })
     return result
-  }, [scripts, selectedTag])
+  }, [filteredScripts, selectedTag])
 
   const hasMultipleGroups = !selectedTag && groups.length > 1
   const hasTags = uniqueTags.length > 0
 
   return (
     <div className="max-w-7xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h2 className="text-[14.5px] font-[800] text-ink-1">All Scripts</h2>
           <p className="text-[12px] text-ink-3 mt-0.5">{scripts.length} scripts total</p>
@@ -437,6 +478,18 @@ export default function Scripts() {
           <Plus className="w-4 h-4" />
           New Script
         </button>
+      </div>
+
+      {/* Search */}
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3 pointer-events-none" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search by name or description..."
+          className="w-full pl-9 pr-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 placeholder:text-ink-3 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
+        />
       </div>
 
       {/* Tag filter bar */}
@@ -511,6 +564,8 @@ export default function Scripts() {
                   toggleMutation={toggleMutation}
                   runMutation={runMutation}
                   onDelete={handleDelete}
+                  timezone={timezone}
+                  formatDateTime={formatDateTime}
                 />
               </div>
             </div>
@@ -524,6 +579,8 @@ export default function Scripts() {
             toggleMutation={toggleMutation}
             runMutation={runMutation}
             onDelete={handleDelete}
+            timezone={timezone}
+            formatDateTime={formatDateTime}
           />
         </div>
       )}

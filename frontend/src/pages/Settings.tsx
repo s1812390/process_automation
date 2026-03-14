@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { settingsApi, Settings } from '../api/settings'
-import { CheckCircle } from 'lucide-react'
+import { CheckCircle, Bell } from 'lucide-react'
 import { useTimezone } from '../context/TimezoneContext'
 import { useToast } from '../components/Toast'
 
@@ -36,6 +36,10 @@ export default function SettingsPage() {
     default_cpu_cores: undefined,
     default_ram_limit_mb: undefined,
     timezone: 'Asia/Almaty',
+    global_alert_on_failure: false,
+    global_alert_on_timeout: false,
+    global_alert_channel: null,
+    global_alert_destination: null,
   })
 
   useEffect(() => {
@@ -187,6 +191,78 @@ export default function SettingsPage() {
               className="w-48 px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 font-mono focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
             />
             <p className="text-[11px] text-ink-3 mt-1">Leave empty or 0 for no limit.</p>
+          </div>
+
+          {/* Global Admin Alerts */}
+          <div className="pt-2 border-t border-[rgba(99,112,156,0.08)]">
+            <div className="flex items-center gap-2 mb-4">
+              <Bell className="w-4 h-4 text-violet" />
+              <div>
+                <h3 className="text-[13px] font-[800] text-ink-1">Admin Alerts (Global)</h3>
+                <p className="text-[11px] text-ink-3 mt-0.5">
+                  Receive alerts for any script failure or timeout, regardless of per-script settings.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {/* Triggers */}
+              <div className="flex gap-6">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.global_alert_on_failure}
+                    onChange={(e) => setForm({ ...form, global_alert_on_failure: e.target.checked })}
+                    className="w-3.5 h-3.5 accent-violet"
+                  />
+                  <span className="text-[12px] font-[600] text-ink-2">On Failure</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.global_alert_on_timeout}
+                    onChange={(e) => setForm({ ...form, global_alert_on_timeout: e.target.checked })}
+                    className="w-3.5 h-3.5 accent-violet"
+                  />
+                  <span className="text-[12px] font-[600] text-ink-2">On Timeout</span>
+                </label>
+              </div>
+
+              {/* Channel */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[12px] font-[700] text-ink-2 mb-1.5">Channel</label>
+                  <select
+                    value={form.global_alert_channel || ''}
+                    onChange={(e) => setForm({ ...form, global_alert_channel: e.target.value || null })}
+                    className="w-full px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
+                  >
+                    <option value="">— disabled —</option>
+                    <option value="email">Email</option>
+                    <option value="telegram">Telegram</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[12px] font-[700] text-ink-2 mb-1.5">
+                    {form.global_alert_channel === 'telegram' ? 'Chat ID' : 'Email address'}
+                  </label>
+                  <input
+                    type="text"
+                    value={form.global_alert_destination || ''}
+                    onChange={(e) => setForm({ ...form, global_alert_destination: e.target.value || null })}
+                    placeholder={form.global_alert_channel === 'telegram' ? '-100123456789' : 'admin@company.com'}
+                    disabled={!form.global_alert_channel}
+                    className="w-full px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                </div>
+              </div>
+
+              {!form.global_alert_channel && (
+                <p className="text-[11px] text-ink-3">
+                  Select a channel to enable global alerts.
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-4 pt-2 border-t border-[rgba(99,112,156,0.08)]">

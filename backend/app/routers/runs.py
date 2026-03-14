@@ -120,6 +120,15 @@ async def cancel_run(run_id: int, session: AsyncSession = Depends(get_db)):
             pass
 
     run.status = "cancelled"
+    run.finished_at = datetime.utcnow()
+
+    # Write a log entry so the cancellation is visible in the run's log history
+    cancel_log = RunLog(
+        run_id=run_id,
+        stream="stderr",
+        line_text="[Process killed by user]",
+    )
+    session.add(cancel_log)
     await session.flush()
 
 

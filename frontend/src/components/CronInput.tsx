@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { clsx } from 'clsx'
+import { getNextCronRun, describeCron } from '../utils/cronUtils'
+import { useTimezone } from '../context/TimezoneContext'
 
 interface CronInputProps {
   value: string
@@ -18,20 +20,12 @@ const PRESETS = [
   { label: 'Monthly 1st', value: '0 9 1 * *' },
 ]
 
-function describeCron(expr: string): string {
-  if (!expr || !expr.trim()) return 'No schedule (manual only)'
-  const parts = expr.trim().split(/\s+/)
-  if (parts.length !== 5) return 'Invalid cron expression'
-
-  const [min, hour, dom, month, dow] = parts
-  const preset = PRESETS.find((p) => p.value === expr.trim())
-  if (preset) return preset.label
-
-  return `${expr}`
-}
-
 export function CronInput({ value, onChange, className }: CronInputProps) {
   const [showPresets, setShowPresets] = useState(false)
+  const { timezone, formatDateTime } = useTimezone()
+
+  const description = describeCron(value)
+  const nextRun = value && value.trim() ? getNextCronRun(value.trim(), timezone) : null
 
   return (
     <div className={clsx('space-y-2', className)}>
@@ -45,7 +39,14 @@ export function CronInput({ value, onChange, className }: CronInputProps) {
         />
       </div>
       <div className="flex items-center justify-between">
-        <p className="text-[11px] text-ink-3">{describeCron(value)}</p>
+        <div className="text-[11px] text-ink-3 space-y-0.5">
+          <div>{description}</div>
+          {nextRun && (
+            <div className="text-violet/80 font-[600]">
+              Next run: {formatDateTime(nextRun)}
+            </div>
+          )}
+        </div>
         <button
           type="button"
           onClick={() => setShowPresets(!showPresets)}

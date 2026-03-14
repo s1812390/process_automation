@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Play, Trash2, Plus, Mail, MessageCircle, X, ChevronLeft, Copy, RefreshCw, Check, AlertTriangle } from 'lucide-react'
+import { Play, Trash2, Plus, Mail, MessageCircle, X, ChevronLeft, Copy, RefreshCw, Check, AlertTriangle, Send } from 'lucide-react'
 import { scriptsApi, alertsApi, AlertConfigCreate } from '../api/scripts'
 import { runsApi } from '../api/runs'
 import { ScriptEditor } from '../components/ScriptEditor'
@@ -138,6 +138,20 @@ export default function ScriptDetail() {
     },
     onError: () => toast('Failed to delete alert', 'error'),
   })
+
+  const [testingAlertId, setTestingAlertId] = useState<number | null>(null)
+  const handleTestAlert = async (alertId: number) => {
+    setTestingAlertId(alertId)
+    try {
+      const result = await alertsApi.test(alertId)
+      toast(result.message, 'success')
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail || 'Failed to send test alert'
+      toast(detail, 'error')
+    } finally {
+      setTestingAlertId(null)
+    }
+  }
 
   const [newAlert, setNewAlert] = useState<AlertConfigCreate | null>(null)
   const createAlertMutation = useMutation({
@@ -579,10 +593,21 @@ export default function ScriptDetail() {
                   </div>
                 </div>
               </div>
-              <button onClick={() => deleteAlertMutation.mutate(alert.id)}
-                className="p-1.5 rounded text-ink-3 hover:text-danger hover:bg-danger-dim transition-colors">
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleTestAlert(alert.id)}
+                  disabled={testingAlertId === alert.id}
+                  title="Send test alert"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-[11px] font-[700] text-violet hover:bg-violet-dim disabled:opacity-50 transition-colors"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  {testingAlertId === alert.id ? 'Sending...' : 'Test'}
+                </button>
+                <button onClick={() => deleteAlertMutation.mutate(alert.id)}
+                  className="p-1.5 rounded text-ink-3 hover:text-danger hover:bg-danger-dim transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           ))}
           {newAlert ? (
