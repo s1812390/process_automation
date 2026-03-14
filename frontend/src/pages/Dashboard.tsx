@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Code2, Play, CheckCircle, XCircle, ChevronLeft, ChevronRight, Calendar, Tag, Search, AlertTriangle } from 'lucide-react'
 import { runsApi, Run } from '../api/runs'
@@ -112,6 +112,7 @@ export default function Dashboard() {
   const [selectedRunTag, setSelectedRunTag] = useState<string | null>(null)
   const [runsSearch, setRunsSearch] = useState('')
   const [killTarget, setKillTarget] = useState<{ id: number; name: string } | null>(null)
+  const isSearching = runsSearch.trim().length > 0
 
   const { from, to } = getPeriodDates(period, customFrom, customTo)
 
@@ -134,25 +135,22 @@ export default function Dashboard() {
     return ids.length > 0 ? ids : [-1] // -1 ensures empty result when no scripts have this tag
   }, [selectedRunTag, scripts])
 
-  const isSearching = runsSearch.trim().length > 0
-  const [searchPage, setSearchPage] = useState(1)
+  // Reset page when filters/search change
+  useEffect(() => { setPage(1) }, [runsSearch, selectedRunTag, period, customFrom, customTo])
 
-  // Reset search page when search term or filters change
-  useEffect(() => { setSearchPage(1) }, [runsSearch, period, customFrom, customTo, selectedRunTag])
-
-  // Single query: large page when searching (client-side filter), paginated otherwise
+  // One query for the table — always loads all runs for the selected period+tag.
+  // Search and pagination are purely client-side, no query switching.
   const { data: runsData } = useQuery({
-    queryKey: ['runs', 'dashboard', period, customFrom, customTo, isSearching ? 'search' : page, selectedRunTag],
+    queryKey: ['runs', 'dashboard', period, customFrom, customTo, selectedRunTag],
     queryFn: () =>
       runsApi.list({
-        page: isSearching ? 1 : page,
-        page_size: isSearching ? 1000 : PAGE_SIZE,
+        page: 1,
+        page_size: 1000,
         date_from: from.toISOString(),
         date_to: to.toISOString(),
         script_ids: scriptIdsForTag,
       }),
     refetchInterval: 5000,
-    placeholderData: keepPreviousData,
   })
 
   // Stats: fetch all runs in period for stats calculation (first page large enough)
@@ -206,28 +204,18 @@ export default function Dashboard() {
   const runningRuns = activeRuns.filter((r) => r.status === 'running')
   const pendingRuns = activeRuns.filter((r) => r.status === 'pending')
 
-  const allSearchFiltered = useMemo(() => {
-    if (!isSearching) return runsData?.items ?? []
+  const filteredItems = useMemo(() => {
+    const items = runsData?.items ?? []
     const q = runsSearch.trim().toLowerCase()
-    return (runsData?.items ?? []).filter((r) =>
-      (r.script_name || '').toLowerCase().includes(q)
-    )
-  }, [isSearching, runsSearch, runsData])
+    if (!q) return items
+    return items.filter((r) => (r.script_name || '').toLowerCase().includes(q))
+  }, [runsData, runsSearch])
 
-  const searchTotalPages = Math.max(1, Math.ceil(allSearchFiltered.length / PAGE_SIZE))
-
-  const recentItems = isSearching
-    ? allSearchFiltered.slice((searchPage - 1) * PAGE_SIZE, searchPage * PAGE_SIZE)
-    : (runsData?.items ?? [])
-
-  const totalPages = isSearching
-    ? searchTotalPages
-    : (runsData ? Math.ceil(runsData.total / PAGE_SIZE) : 1)
-
-  const activePage = isSearching ? searchPage : page
-  const setActivePage = isSearching
-    ? (p: number) => setSearchPage(Math.min(Math.max(1, p), searchTotalPages))
-    : (p: number) => setPage(Math.min(Math.max(1, p), totalPages))
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const recentItems = filteredItems.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+  const activePage = safePage
+  const setActivePage = (p: number) => setPage(Math.min(Math.max(1, p), totalPages))
 
   const periodLabel =
     period === '2d' ? 'last 2 days' :
@@ -521,7 +509,7 @@ export default function Dashboard() {
         {totalPages > 1 && (
           <div className="flex items-center justify-between mt-3">
             <span className="text-[12px] text-ink-3">
-              {isSearching ? allSearchFiltered.length : (runsData?.total ?? 0)} runs · page {activePage} of {totalPages}
+              {filteredItems.length} runs · page {activePage} of {totalPages}
             </span>
             <div className="flex items-center gap-1">
               <button
