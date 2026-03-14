@@ -75,12 +75,14 @@ process_automation/
 │       │   ├── RunDetail.tsx    # Logs viewer, back link → /scripts/:id?tab=history
 │       │   ├── Variables.tsx    # Global variables CRUD table
 │       │   └── Settings.tsx     # App-wide settings form
+│       ├── utils/
+│       │   └── cronUtils.ts         # getNextCronRun(expr, tz): Date|null; describeCron(expr): string
 │       └── components/
 │           ├── layout/Sidebar.tsx   # Nav: Dashboard, Scripts, Global Variables, Settings
 │           ├── layout/Header.tsx    # Dynamic page title
 │           ├── LogViewer.tsx        # Terminal log viewer + SSE streaming
 │           ├── ScriptEditor.tsx     # Monaco editor wrapper
-│           ├── CronInput.tsx        # Cron expression input
+│           ├── CronInput.tsx        # Cron expression input + next run preview
 │           └── StatusBadge.tsx      # Run status badge
 ├── docker-compose.yml
 ├── nginx.conf
@@ -164,6 +166,7 @@ api_key = os.environ["MY_API_KEY"]  # set in Global Variables page
 | GET/POST | `/api/variables` | List / create global vars |
 | PUT/DELETE | `/api/variables/{id}` | Update / delete |
 | GET/POST | `/api/alerts/{script_id}` | List / create alert configs |
+| POST | `/api/alerts/{id}/test` | Send test alert for a config |
 | DELETE | `/api/alerts/{id}` | Delete alert |
 | POST | `/api/webhooks/{token}` | Webhook trigger |
 | GET | `/api/docs` | Swagger UI |
@@ -246,6 +249,10 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE alembic_version'; EXCEPTION WHEN OTHERS THEN
 | `max_concurrent_workers` | `2` | Макс параллельных воркеров |
 | `default_timeout_seconds` | `3600` | Таймаут скрипта по умолчанию |
 | `default_max_retries` | `0` | Кол-во повторных попыток |
+| `global_alert_on_failure` | `false` | Глобальный алерт при failed |
+| `global_alert_on_timeout` | `false` | Глобальный алерт при timeout |
+| `global_alert_channel` | — | `email` или `telegram` |
+| `global_alert_destination` | — | Email или Telegram chat ID |
 
 ## Tags on Scripts
 
@@ -254,8 +261,21 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE alembic_version'; EXCEPTION WHEN OTHERS THEN
 - Dashboard Recent Runs shows Tag column + tag filter pills (server-side filtering via `script_ids`)
 - `api/client.ts` has a `paramsSerializer` that serialises arrays as repeated params (`k=1&k=2`) for FastAPI compatibility
 
-## Git Branch
+## UI Features (добавлены)
 
-Development branch: `claude/refactor-structure-visual-RnEhT`
+- **Scripts page**: поиск по name/description (client-side); Schedule column показывает `describeCron()` + "Next: ..."
+- **Dashboard Recent Runs**: поиск по script_name — при активном поиске грузит `page_size=1000` и пагинирует клиентски
+- **ScriptDetail → History**: пагинация 15/страницу + фильтр по периоду (по умолчанию последние 30 дней)
+- **ScriptDetail → Alerts**: кнопка "Test" → `POST /api/alerts/{id}/test` → toast с результатом
+- **Variables page**: значения скрыты (`••••`), кнопки Eye/Copy появляются при hover
+- **Kill confirmation**: на Dashboard и RunDetail — модальное окно подтверждения перед отменой запуска
+- **Kill log**: при отмене записывается `[Process killed by user]` в `SH_RUN_LOGS`
+- **Alert messages**: включают Tag, human-readable статус и описательную фразу (email + Telegram)
+- **Global Alerts**: настройка в Settings → "Admin Alerts" секция (хранится в `SH_APP_SETTINGS`)
 
-Always push to this branch. Never push to main without explicit permission.
+## cronUtils.ts — важные детали
+
+`frontend/src/utils/cronUtils.ts`:
+- `getNextCronRun(expr, timezone)` — итерирует по минутам (макс. 10080 = 1 неделя) используя `Intl.DateTimeFormat.formatToParts()` в целевом timezone
+- `describeCron(expr)` — человекочитаемое описание; `* * * * *` → "Every minute" (не "Every hour")
+- Поддерживает: `*`, `*/n`, списки через запятую, диапазоны, конкретные значения
