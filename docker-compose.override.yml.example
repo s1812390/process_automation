@@ -1,0 +1,57 @@
+# Local development override — loaded automatically by Docker Compose.
+# Do NOT copy this file to production.
+#
+# Oracle connection is read from .env (ORACLE_HOST, ORACLE_PORT, etc.).
+# To use the local oracle-db container: set ORACLE_HOST=oracle-db in .env
+# To use the corporate Oracle:          set real values in .env and comment
+#                                        out the oracle-db service below.
+
+services:
+  oracle-db:
+    image: gvenzl/oracle-free:23-slim
+    environment:
+      ORACLE_PASSWORD: oracle_root_pass
+      APP_USER: scheduler
+      APP_USER_PASSWORD: scheduler_pass
+    ports:
+      - "1521:1521"
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+
+  backend:
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  celery-worker:
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+
+  celery-beat:
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+
+volumes:
+  oracle_data:
