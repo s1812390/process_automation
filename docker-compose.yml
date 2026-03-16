@@ -36,6 +36,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    env_file:
+      - .env
     environment:
       - ORACLE_HOST=oracle-db
       - ORACLE_PORT=1521
@@ -58,6 +60,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    env_file:
+      - .env
     environment:
       - ORACLE_HOST=oracle-db
       - ORACLE_PORT=1521
@@ -77,6 +81,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    env_file:
+      - .env
     environment:
       - ORACLE_HOST=oracle-db
       - ORACLE_PORT=1521
