@@ -5,3 +5,4 @@ dist/
 *.pyc
 celerybeat-schedule
 .env
+docker-compose.override.yml
