@@ -111,3 +111,5 @@ services:
 
 volumes:
   oracle_data:
+    external: true
+    name: process_automation_oracle_data
