@@ -1,0 +1,57 @@
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: always
+    logging: *default-logging
+
+  backend:
+    image: ${BACKEND_IMAGE}:${CI_COMMIT_REF_SLUG}
+    restart: always
+    depends_on:
+      - redis
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    logging: *default-logging
+
+  celery-worker:
+    image: ${BACKEND_IMAGE}:${CI_COMMIT_REF_SLUG}
+    restart: always
+    depends_on:
+      - redis
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    command: celery -A app.celery_app worker --queues=high,normal,default --concurrency=2 --loglevel=info
+    logging: *default-logging
+
+  celery-beat:
+    image: ${BACKEND_IMAGE}:${CI_COMMIT_REF_SLUG}
+    restart: always
+    depends_on:
+      - redis
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    command: celery -A app.celery_app beat --scheduler app.beat_schedule.DatabaseScheduler --loglevel=info
+    logging: *default-logging
+
+  frontend:
+    image: ${FRONTEND_IMAGE}:${CI_COMMIT_REF_SLUG}
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "8090:80"
+    logging: *default-logging
