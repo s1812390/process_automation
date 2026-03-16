@@ -36,6 +36,7 @@ deploy:
     - if: '$CI_COMMIT_BRANCH == "master"'
   before_script:
     - "which ssh-agent || ( apt-get update -y && apt-get install openssh-client git -y )"
+    - "which envsubst || ( apt-get update -y && apt-get install -y gettext-base )"
     - eval $(ssh-agent -s)
     - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
     - mkdir -p ~/.ssh
