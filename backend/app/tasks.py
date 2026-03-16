@@ -242,8 +242,7 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
         session.commit()
 
         # 11-12. Handle retry/alert
-        if final_status != "success":
-            _handle_retry_or_alert(session, script, run, final_status)
+        _handle_retry_or_alert(session, script, run, final_status)
 
     except Exception as e:
         logger.error("Task execution error", error=str(e), run_id=run_id)
@@ -275,7 +274,7 @@ def _handle_retry_or_alert(session, script, run, status: str):
     from app.models import ScriptRun
 
     max_retries = script.max_retries or 0
-    if run.attempt_number < max_retries:
+    if status != "success" and run.attempt_number < max_retries:
         # Create new run for retry
         new_run = ScriptRun(
             script_id=script.id,
