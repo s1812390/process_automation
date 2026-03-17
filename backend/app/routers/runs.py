@@ -120,7 +120,7 @@ async def cancel_run(run_id: int, session: AsyncSession = Depends(get_db)):
             pass
 
     run.status = "cancelled"
-    run.finished_at = datetime.now(timezone.utc)
+    run.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # Write a log entry so the cancellation is visible in the run's log history
     cancel_log = RunLog(

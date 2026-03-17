@@ -18,7 +18,7 @@ class ScriptRun(Base):
     celery_task_id = Column(String(255))
     worker_pid = Column(Integer)
     parameters = Column(Text)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     script = relationship("Script", back_populates="runs")
     logs = relationship("RunLog", back_populates="run", cascade="all, delete-orphan")

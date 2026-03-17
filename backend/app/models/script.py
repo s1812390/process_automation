@@ -22,8 +22,8 @@ class Script(Base):
     webhook_token = Column(String(64), unique=True)
     parameters_schema = Column(Text)
     tag = Column(String(100))
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     runs = relationship("ScriptRun", back_populates="script", cascade="all, delete-orphan")
     alert_configs = relationship("AlertConfig", back_populates="script", cascade="all, delete-orphan")

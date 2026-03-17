@@ -9,7 +9,7 @@ class RunLog(Base):
 
     id = Column(Integer, primary_key=True)
     run_id = Column(Integer, ForeignKey("SH_SCRIPT_RUNS.id"), nullable=False)
-    logged_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    logged_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     stream = Column(String(6), nullable=False)
     line_text = Column(Text, nullable=False)
 

@@ -88,7 +88,7 @@ async def update_script(
         raise HTTPException(status_code=404, detail="Script not found")
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(script, field, value)
-    script.updated_at = datetime.now(timezone.utc)
+    script.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await session.flush()
     await session.refresh(script)
     enriched = await _enrich_script(script, session)
@@ -109,7 +109,7 @@ async def toggle_script(script_id: int, session: AsyncSession = Depends(get_db))
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
     script.is_active = not script.is_active
-    script.updated_at = datetime.now(timezone.utc)
+    script.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await session.flush()
     await session.refresh(script)
     enriched = await _enrich_script(script, session)
@@ -122,7 +122,7 @@ async def regenerate_webhook(script_id: int, session: AsyncSession = Depends(get
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
     script.webhook_token = _gen_token()
-    script.updated_at = datetime.now(timezone.utc)
+    script.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await session.flush()
     await session.refresh(script)
     enriched = await _enrich_script(script, session)

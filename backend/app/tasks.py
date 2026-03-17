@@ -86,7 +86,7 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 
         # 2. Update run status → running
         run.status = "running"
-        run.started_at = datetime.now(timezone.utc)
+        run.started_at = datetime.now(timezone.utc).replace(tzinfo=None)
         run.worker_pid = os.getpid()
         run.celery_task_id = self.request.id
         session.commit()
@@ -225,7 +225,7 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
             stderr_thread.join(timeout=5)
             elapsed_ms = int((time.time() - start_time) * 1000)
             run.status = "timeout"
-            run.finished_at = datetime.now(timezone.utc)
+            run.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
             run.duration_ms = elapsed_ms
             session.commit()
 
@@ -247,7 +247,7 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
         # 9. Update status
         final_status = "success" if exit_code == 0 else "failed"
         run.status = final_status
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
         run.duration_ms = elapsed_ms
         session.commit()
 
@@ -260,7 +260,7 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
             run = session.get(ScriptRun, run_id)
             if run:
                 run.status = "failed"
-                run.finished_at = datetime.now(timezone.utc)
+                run.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
                 session.commit()
         except Exception:
             pass
