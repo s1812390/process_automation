@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   redis:
-    image: redis:7-alpine
+    image: ${REDIS_IMAGE}:7-alpine
     restart: always
     logging: *default-logging
 

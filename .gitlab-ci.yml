@@ -5,7 +5,17 @@ stages:
 variables:
   BACKEND_IMAGE: $CI_REGISTRY_IMAGE/backend
   FRONTEND_IMAGE: $CI_REGISTRY_IMAGE/frontend
+  REDIS_IMAGE: $CI_REGISTRY_IMAGE/redis
   COMPOSE_PATH: /data/docker-compose/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME
+
+mirror-redis:
+  stage: build
+  before_script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+  script:
+    - docker pull redis:7-alpine
+    - docker tag redis:7-alpine $REDIS_IMAGE:7-alpine
+    - docker push $REDIS_IMAGE:7-alpine
 
 build-backend:
   stage: build
