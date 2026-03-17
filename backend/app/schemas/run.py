@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_serializer
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def _utc(dt: Optional[datetime]) -> Optional[str]:
@@ -8,7 +8,7 @@ def _utc(dt: Optional[datetime]) -> Optional[str]:
         return None
     if dt.tzinfo is None:
         return dt.isoformat() + "Z"
-    return dt.isoformat()
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class RunResponse(BaseModel):
