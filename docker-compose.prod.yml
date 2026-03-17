@@ -44,7 +44,9 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
-    command: celery -A app.celery_app beat --scheduler app.beat_schedule.DatabaseScheduler --loglevel=info
+    command: celery -A app.celery_app beat --scheduler app.beat_schedule.DatabaseScheduler --loglevel=info --schedule /data/celerybeat-schedule
+    volumes:
+      - celery_beat_schedule:/data
     logging: *default-logging
 
   frontend:
@@ -55,3 +57,6 @@ services:
     ports:
       - "8090:80"
     logging: *default-logging
+
+volumes:
+  celery_beat_schedule:

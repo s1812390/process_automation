@@ -50,6 +50,25 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 
         # If called from beat scheduler without a run_id, create a new run
         if run_id is None:
+            # Guard against duplicate scheduled runs (beat restart or double-delivery).
+            # If this script already has a pending/running run, skip silently.
+            from sqlalchemy import select as _select
+            active_id = session.execute(
+                _select(ScriptRun.id)
+                .where(
+                    ScriptRun.script_id == script_id,
+                    ScriptRun.status.in_(["pending", "running"]),
+                )
+                .limit(1)
+            ).scalar_one_or_none()
+            if active_id is not None:
+                logger.info(
+                    "Skipping scheduled run: script already has active run",
+                    script_id=script_id,
+                    active_run_id=active_id,
+                )
+                return
+
             # Extract default parameters from schema (same logic as manual run)
             scheduled_params = None
             if script.parameters_schema:
