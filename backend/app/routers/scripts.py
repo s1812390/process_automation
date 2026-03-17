@@ -168,11 +168,14 @@ async def run_script_now(
     await session.flush()
     await session.refresh(run)
 
+    # Commit before dispatching so the run record is visible to the celery worker
+    await session.commit()
+
     task = execute_script.apply_async(
         args=[script.id, run.id],
         queue=get_queue_name(script.priority),
     )
     run.celery_task_id = task.id
-    await session.flush()
+    await session.merge(run)
 
     return {"run_id": run.id, "task_id": task.id}
