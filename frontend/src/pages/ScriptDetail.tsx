@@ -9,6 +9,7 @@ import { CronInput } from '../components/CronInput'
 import { StatusBadge } from '../components/StatusBadge'
 import { useToast } from '../components/Toast'
 import { formatDistanceToNow, subDays, format } from 'date-fns'
+import { parseUTC } from '../utils/dateUtils'
 import { clsx } from 'clsx'
 
 type Tab = 'editor' | 'requirements' | 'settings' | 'parameters' | 'alerts' | 'history'
@@ -712,7 +713,7 @@ export default function ScriptDetail() {
                         {run.duration_ms ? `${(run.duration_ms / 1000).toFixed(1)}s` : '—'}
                       </td>
                       <td className="px-4 py-3 text-[12px] text-ink-3">
-                        {run.started_at ? formatDistanceToNow(new Date(run.started_at), { addSuffix: true }) : '—'}
+                        {run.started_at ? formatDistanceToNow(parseUTC(run.started_at), { addSuffix: true }) : '—'}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <Link to={`/runs/${run.id}`} className="text-[11px] font-[700] text-violet hover:text-violet/70">Logs</Link>

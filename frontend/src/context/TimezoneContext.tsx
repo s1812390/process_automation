@@ -1,6 +1,7 @@
 import { createContext, useContext, ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { settingsApi } from '../api/settings'
+import { parseUTC } from '../utils/dateUtils'
 
 interface TimezoneContextValue {
   timezone: string
@@ -26,7 +27,7 @@ export function TimezoneProvider({ children }: { children: ReactNode }) {
   const timezone = settings?.timezone || 'Asia/Almaty'
 
   const fmt = (date: string | Date, opts: Intl.DateTimeFormatOptions) =>
-    new Intl.DateTimeFormat('ru-KZ', { timeZone: timezone, ...opts }).format(new Date(date))
+    new Intl.DateTimeFormat('ru-KZ', { timeZone: timezone, ...opts }).format(parseUTC(date))
 
   const formatDate = (date: string | Date) =>
     fmt(date, { year: 'numeric', month: '2-digit', day: '2-digit' })

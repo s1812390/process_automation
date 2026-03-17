@@ -6,6 +6,7 @@ import { scriptsApi } from '../api/scripts'
 import { StatusBadge } from '../components/StatusBadge'
 import { StatCard } from '../components/StatCard'
 import { formatDistanceToNow, subDays, startOfDay, endOfDay } from 'date-fns'
+import { parseUTC } from '../utils/dateUtils'
 import { useState, useEffect, useMemo } from 'react'
 import { useTimezone } from '../context/TimezoneContext'
 import { useToast } from '../components/Toast'
@@ -26,7 +27,7 @@ function ElapsedTimer({ startedAt }: { startedAt?: string }) {
 
   useEffect(() => {
     if (!startedAt) return
-    const start = new Date(startedAt).getTime()
+    const start = parseUTC(startedAt).getTime()
     const interval = setInterval(() => {
       setElapsed(Date.now() - start)
     }, 1000)
@@ -326,7 +327,7 @@ export default function Dashboard() {
                       <span className="text-[11px] font-[700] font-mono text-ink-3">P{i + 1}</span>
                     </td>
                     <td className="px-4 py-3 text-[12px] text-ink-3" title={formatDateTime(run.created_at)}>
-                      {formatDistanceToNow(new Date(run.created_at), { addSuffix: true })}
+                      {formatDistanceToNow(parseUTC(run.created_at), { addSuffix: true })}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
@@ -488,7 +489,7 @@ export default function Dashboard() {
                       {formatDuration(run.duration_ms)}
                     </td>
                     <td className="px-4 py-3 text-[12px] text-ink-3" title={formatDateTime(run.created_at)}>
-                      {formatDistanceToNow(new Date(run.created_at), { addSuffix: true })}
+                      {formatDistanceToNow(parseUTC(run.created_at), { addSuffix: true })}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Link

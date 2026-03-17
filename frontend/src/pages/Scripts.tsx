@@ -8,6 +8,7 @@ import { ScriptEditor } from '../components/ScriptEditor'
 import { CronInput } from '../components/CronInput'
 import { useToast } from '../components/Toast'
 import { formatDistanceToNow } from 'date-fns'
+import { parseUTC } from '../utils/dateUtils'
 import { clsx } from 'clsx'
 import { getNextCronRun, describeCron } from '../utils/cronUtils'
 import { useTimezone } from '../context/TimezoneContext'
@@ -269,7 +270,7 @@ function ScriptTableRows({
                 <StatusBadge status={script.last_run_status} />
                 <span className="text-[11px] text-ink-3">
                   {script.last_run_at
-                    ? formatDistanceToNow(new Date(script.last_run_at), { addSuffix: true })
+                    ? formatDistanceToNow(parseUTC(script.last_run_at), { addSuffix: true })
                     : ''}
                 </span>
               </div>

@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import event
 from app.config import settings
 
 
@@ -9,6 +10,13 @@ engine = create_async_engine(
     max_overflow=20,
     echo=False,
 )
+
+
+@event.listens_for(engine.sync_engine, "connect")
+def _force_utc_session(dbapi_conn, _):
+    cursor = dbapi_conn.cursor()
+    cursor.execute("ALTER SESSION SET TIME_ZONE = '+00:00'")
+    cursor.close()
 
 AsyncSessionLocal = async_sessionmaker(
     engine,

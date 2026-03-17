@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import structlog
 from celery import Task
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
 from app.celery_app import celery_app, get_queue_name
@@ -16,11 +16,21 @@ from app.config import settings
 
 logger = structlog.get_logger()
 
+_sync_engine = create_engine(settings.sync_database_url, pool_size=5, max_overflow=10)
+
+
+@event.listens_for(_sync_engine, "connect")
+def _force_utc_session(dbapi_conn, _):
+    cursor = dbapi_conn.cursor()
+    cursor.execute("ALTER SESSION SET TIME_ZONE = '+00:00'")
+    cursor.close()
+
+
+_SyncSession = sessionmaker(bind=_sync_engine)
+
 
 def get_sync_session():
-    engine = create_engine(settings.sync_database_url)
-    Session = sessionmaker(bind=engine)
-    return Session()
+    return _SyncSession()
 
 
 @celery_app.task(bind=True, name="app.tasks.execute_script")
