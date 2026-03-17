@@ -1,6 +1,6 @@
+from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
 from app.database import Base
 
 
@@ -18,7 +18,7 @@ class ScriptRun(Base):
     celery_task_id = Column(String(255))
     worker_pid = Column(Integer)
     parameters = Column(Text)
-    created_at = Column(DateTime, server_default=func.current_timestamp())
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     script = relationship("Script", back_populates="runs")
     logs = relationship("RunLog", back_populates="run", cascade="all, delete-orphan")

@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -120,7 +120,7 @@ async def cancel_run(run_id: int, session: AsyncSession = Depends(get_db)):
             pass
 
     run.status = "cancelled"
-    run.finished_at = datetime.utcnow()
+    run.finished_at = datetime.now(timezone.utc)
 
     # Write a log entry so the cancellation is visible in the run's log history
     cancel_log = RunLog(

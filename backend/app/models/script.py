@@ -1,6 +1,6 @@
+from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
 from app.database import Base
 
 
@@ -22,8 +22,8 @@ class Script(Base):
     webhook_token = Column(String(64), unique=True)
     parameters_schema = Column(Text)
     tag = Column(String(100))
-    created_at = Column(DateTime, server_default=func.current_timestamp())
-    updated_at = Column(DateTime, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     runs = relationship("ScriptRun", back_populates="script", cascade="all, delete-orphan")
     alert_configs = relationship("AlertConfig", back_populates="script", cascade="all, delete-orphan")
