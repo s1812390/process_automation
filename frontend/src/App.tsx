@@ -12,7 +12,7 @@ import { ToastProvider } from './components/Toast'
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
     <TimezoneProvider>
     <ToastProvider>
       <div className="flex h-screen overflow-hidden bg-bg">

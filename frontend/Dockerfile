@@ -4,7 +4,8 @@ WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ .
-RUN npm run build
+ARG VITE_BASE_PATH=/scheduler/
+RUN VITE_BASE_PATH=$VITE_BASE_PATH npm run build
 
 # Stage 2 — serve via nginx
 FROM nginx:1.25-alpine
