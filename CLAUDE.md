@@ -9,7 +9,7 @@ Quick reference for Claude Code sessions on this project.
 A Python script scheduler with a React UI. Users create Python scripts, schedule them via cron, run them manually or via webhook, monitor logs in real time, and receive alerts on failure.
 
 **Stack:** FastAPI + Celery + Oracle DB + React + Vite
-**Docker services:** `backend`, `celery-worker`, `celery-beat`, `redis`, `frontend` (nginx, port 8080)
+**Docker services:** `backend`, `celery-worker`, `celery-beat`, `redis`, `frontend` (nginx, port **8090**)
 **Docker logs:** capped at 20 MB × 5 files per service (configured in docker-compose.yml)
 
 ---
@@ -76,7 +76,8 @@ process_automation/
 │       │   ├── Variables.tsx    # Global variables CRUD table
 │       │   └── Settings.tsx     # App-wide settings form
 │       ├── utils/
-│       │   └── cronUtils.ts         # getNextCronRun(expr, tz): Date|null; describeCron(expr): string
+│       │   ├── cronUtils.ts         # getNextCronRun(expr, tz): Date|null; describeCron(expr): string
+│       │   └── dateUtils.ts         # parseUTC(s): Date — always parses timestamps as UTC
 │       └── components/
 │           ├── layout/Sidebar.tsx   # Nav: Dashboard, Scripts, Global Variables, Settings
 │           ├── layout/Header.tsx    # Dynamic page title
@@ -85,6 +86,8 @@ process_automation/
 │           ├── CronInput.tsx        # Cron expression input + next run preview
 │           └── StatusBadge.tsx      # Run status badge
 ├── docker-compose.yml
+├── docker-compose.prod.yml      # Production compose (uses CI registry images, env vars substituted via envsubst)
+├── .gitlab-ci.yml               # CI/CD: build-backend, build-frontend, mirror-redis, deploy (master only)
 ├── nginx.conf
 ├── test_api.py                  # Smoke tests (pip install httpx; python test_api.py)
 └── CLAUDE.md                    # This file
@@ -108,6 +111,7 @@ process_automation/
 - DDL auto-commits — alembic migration is idempotent (checks `user_tables` before CREATE)
 - `oracledb` must be `>=2.0` — SQLAlchemy 2.x requires it
 - Migrations: never edit `001_initial_schema.py`. Create a new file `002_*.py`, set `down_revision = "001"`
+- **Timezone**: `database.py` and `tasks.py` both run `ALTER SESSION SET TIME_ZONE = '+00:00'` on connect → Oracle always returns UTC. Do NOT remove this — without it, oracledb 2.x returns tz-aware datetimes with the session offset (+05:00 when `TZ=Asia/Almaty` is in `.env`), causing "5 hours ago" drift in the UI
 
 ---
 
@@ -279,3 +283,38 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE alembic_version'; EXCEPTION WHEN OTHERS THEN
 - `getNextCronRun(expr, timezone)` — итерирует по минутам (макс. 10080 = 1 неделя) используя `Intl.DateTimeFormat.formatToParts()` в целевом timezone
 - `describeCron(expr)` — человекочитаемое описание; `* * * * *` → "Every minute" (не "Every hour")
 - Поддерживает: `*`, `*/n`, списки через запятую, диапазоны, конкретные значения
+
+## dateUtils.ts — важные детали
+
+`frontend/src/utils/dateUtils.ts`:
+- `parseUTC(s)` — парсит datetime строку как UTC. Если строка без timezone маркера (`Z` / `+HH:MM`), добавляет `Z`
+- Используется везде где `new Date(timestamp)` для расчётов ("time ago", elapsed timer)
+- Не используется в `formatDateTime` — там `Intl.DateTimeFormat` сам конвертирует в нужный timezone
+
+## CI/CD (.gitlab-ci.yml)
+
+- **build stage** (параллельно): `build-backend`, `build-frontend`, `mirror-redis`
+  - `mirror-redis`: пулит `redis:7-alpine` с Docker Hub на раннере и пушит в GitLab registry → сервер не обращается к Docker Hub напрямую
+- **deploy stage** (только `master`): SSH на сервер, `envsubst` подставляет переменные в `docker-compose.prod.yml`, `docker-compose pull && up -d`
+- Раннер образ `governmentpaas/git-ssh` (Alpine) — `envsubst` устанавливается через `apk add gettext`
+- `COMPOSE_PATH` = `/data/docker-compose/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME`
+- `.env` файл лежит на сервере в `$COMPOSE_PATH/.env` (не в репо) — содержит Oracle credentials, TZ и др.
+
+## Production .env (на сервере)
+
+```env
+ORACLE_HOST=...
+ORACLE_PORT=1521
+ORACLE_SERVICE_NAME=FREEPDB1
+ORACLE_USER=...
+ORACLE_PASSWORD=...
+REDIS_URL=redis://redis:6379/0
+SECRET_KEY=...
+# Alerts (опционально)
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM=
+TELEGRAM_BOT_TOKEN=
+```
