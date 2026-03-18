@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, ChevronLeft, ChevronRight, Tag, X } from 'lucide-react'
+import { AlertTriangle, ChevronLeft, ChevronRight, ChevronDown, Tag, X, Search } from 'lucide-react'
 import { runsApi, Run } from '../api/runs'
 import { scriptsApi } from '../api/scripts'
 import { StatusBadge } from '../components/StatusBadge'
@@ -9,8 +9,26 @@ import { parseUTC } from '../utils/dateUtils'
 import { useState, useEffect, useMemo } from 'react'
 import { useTimezone } from '../context/TimezoneContext'
 import { useToast } from '../components/Toast'
+import { clsx } from 'clsx'
 
 const PAGE_SIZE = 20
+
+const STATUS_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'running', label: 'Running' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'success', label: 'Success' },
+  { value: 'failed', label: 'Failed' },
+  { value: 'timeout', label: 'Timeout' },
+  { value: 'cancelled', label: 'Cancelled' },
+]
+
+const TRIGGER_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'manual', label: 'Manual' },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'webhook', label: 'Webhook' },
+]
 
 function formatDuration(ms?: number): string {
   if (!ms) return '—'
@@ -89,7 +107,6 @@ export default function Runs() {
   const [page, setPage] = useState(1)
   const [killTarget, setKillTarget] = useState<{ id: number; name: string } | null>(null)
 
-  // Reset page when filters change
   useEffect(() => { setPage(1) }, [dateFrom, dateTo, statusFilter, triggeredByFilter, tagFilter, scriptSearch])
 
   const { data: scripts = [] } = useQuery({
@@ -110,7 +127,6 @@ export default function Runs() {
     return map
   }, [scripts])
 
-  // For tag filter: get script_ids that have the selected tag
   const scriptIdsForTag = useMemo(() => {
     if (!tagFilter) return undefined
     const ids: number[] = []
@@ -145,7 +161,6 @@ export default function Runs() {
 
   const allItems = runsData?.items ?? []
 
-  // Client-side filters: triggered_by and script name search
   const filteredItems = useMemo(() => {
     let items = allItems
     if (triggeredByFilter) {
@@ -176,7 +191,8 @@ export default function Runs() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto space-y-5">
+    <div className="max-w-7xl mx-auto space-y-4">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-[18px] font-[800] text-ink-1">All Runs</h1>
         {hasFilters && (
@@ -190,9 +206,10 @@ export default function Runs() {
         )}
       </div>
 
-      {/* Filters */}
+      {/* Filter bar */}
       <div className="bg-white rounded-xl border border-[rgba(99,112,156,0.12)] p-4">
-        <div className="flex flex-wrap gap-3 items-end">
+        <div className="flex flex-wrap gap-4 items-end">
+
           {/* Date range */}
           <div className="flex items-center gap-1.5">
             <div className="flex flex-col gap-1">
@@ -201,7 +218,7 @@ export default function Runs() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
-                className="text-[12px] px-2.5 py-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50"
+                className="text-[12px] px-2.5 py-[7px] rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50 focus:ring-1 focus:ring-violet/10"
               />
             </div>
             <span className="text-[11px] text-ink-3 mt-5">–</span>
@@ -211,74 +228,108 @@ export default function Runs() {
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
-                className="text-[12px] px-2.5 py-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50"
+                className="text-[12px] px-2.5 py-[7px] rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50 focus:ring-1 focus:ring-violet/10"
               />
             </div>
           </div>
 
-          {/* Status */}
+          {/* Divider */}
+          <div className="h-8 w-px bg-[rgba(99,112,156,0.12)] self-end mb-0.5" />
+
+          {/* Status — segmented buttons */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3">Status</label>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="text-[12px] px-2.5 py-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50"
-            >
-              <option value="">All</option>
-              <option value="running">Running</option>
-              <option value="pending">Pending</option>
-              <option value="success">Success</option>
-              <option value="failed">Failed</option>
-              <option value="timeout">Timeout</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
+            <div className="flex rounded-lg border border-[rgba(99,112,156,0.18)] overflow-hidden">
+              {STATUS_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setStatusFilter(opt.value)}
+                  className={clsx(
+                    'px-2.5 py-[7px] text-[11.5px] font-[700] transition-colors whitespace-nowrap',
+                    statusFilter === opt.value
+                      ? 'bg-violet text-white'
+                      : 'bg-white text-ink-3 hover:text-ink-1 hover:bg-bg'
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Triggered by */}
+          {/* Divider */}
+          <div className="h-8 w-px bg-[rgba(99,112,156,0.12)] self-end mb-0.5" />
+
+          {/* Triggered by — segmented buttons */}
           <div className="flex flex-col gap-1">
             <label className="text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3">Triggered By</label>
-            <select
-              value={triggeredByFilter}
-              onChange={(e) => setTriggeredByFilter(e.target.value)}
-              className="text-[12px] px-2.5 py-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50"
-            >
-              <option value="">All</option>
-              <option value="manual">Manual</option>
-              <option value="scheduled">Scheduled</option>
-              <option value="webhook">Webhook</option>
-            </select>
-          </div>
-
-          {/* Tag */}
-          {uniqueTags.length > 0 && (
-            <div className="flex flex-col gap-1">
-              <label className="text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3">Tag</label>
-              <select
-                value={tagFilter}
-                onChange={(e) => setTagFilter(e.target.value)}
-                className="text-[12px] px-2.5 py-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50"
-              >
-                <option value="">All tags</option>
-                {uniqueTags.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
+            <div className="flex rounded-lg border border-[rgba(99,112,156,0.18)] overflow-hidden">
+              {TRIGGER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setTriggeredByFilter(opt.value)}
+                  className={clsx(
+                    'px-3 py-[7px] text-[11.5px] font-[700] transition-colors',
+                    triggeredByFilter === opt.value
+                      ? 'bg-violet text-white'
+                      : 'bg-white text-ink-3 hover:text-ink-1 hover:bg-bg'
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
 
           {/* Script name search */}
           <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
             <label className="text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3">Script</label>
-            <input
-              type="text"
-              value={scriptSearch}
-              onChange={(e) => setScriptSearch(e.target.value)}
-              placeholder="Filter by script name..."
-              className="text-[12px] px-2.5 py-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50 placeholder:text-ink-3"
-            />
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-3 pointer-events-none" />
+              <input
+                type="text"
+                value={scriptSearch}
+                onChange={(e) => setScriptSearch(e.target.value)}
+                placeholder="Filter by name..."
+                className="w-full pl-8 pr-3 py-[7px] text-[12px] rounded-lg border border-[rgba(99,112,156,0.18)] text-ink-1 bg-white focus:outline-none focus:border-violet/50 focus:ring-1 focus:ring-violet/10 placeholder:text-ink-3"
+              />
+            </div>
           </div>
+
         </div>
       </div>
+
+      {/* Tag pills */}
+      {uniqueTags.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <Tag className="w-3.5 h-3.5 text-ink-3 flex-shrink-0" />
+          <button
+            onClick={() => setTagFilter('')}
+            className={clsx(
+              'px-3 py-1 rounded-full text-[11px] font-[700] transition-all',
+              tagFilter === ''
+                ? 'bg-ink-1 text-white'
+                : 'bg-white text-ink-2 border border-[rgba(99,112,156,0.2)] hover:border-violet hover:text-violet'
+            )}
+          >
+            All
+          </button>
+          {uniqueTags.map((tag) => (
+            <button
+              key={tag}
+              onClick={() => setTagFilter(tagFilter === tag ? '' : tag)}
+              className={clsx(
+                'px-3 py-1 rounded-full text-[11px] font-[700] transition-all',
+                tagFilter === tag
+                  ? 'bg-violet text-white'
+                  : 'bg-white text-ink-2 border border-[rgba(99,112,156,0.2)] hover:border-violet hover:text-violet'
+              )}
+            >
+              {tag}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-[rgba(99,112,156,0.12)] overflow-hidden">
@@ -402,11 +453,12 @@ export default function Runs() {
                   <button
                     key={p}
                     onClick={() => setPage(p as number)}
-                    className={`min-w-[30px] h-[30px] rounded-lg border text-[12px] font-[700] transition-colors ${
+                    className={clsx(
+                      'min-w-[30px] h-[30px] rounded-lg border text-[12px] font-[700] transition-colors',
                       safePage === p
                         ? 'bg-violet text-white border-violet'
                         : 'bg-white text-ink-2 border-[rgba(99,112,156,0.18)] hover:text-ink-1'
-                    }`}
+                    )}
                   >
                     {p}
                   </button>
