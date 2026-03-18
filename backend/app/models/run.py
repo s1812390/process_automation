@@ -18,6 +18,8 @@ class ScriptRun(Base):
     celery_task_id = Column(String(255))
     worker_pid = Column(Integer)
     parameters = Column(Text)
+    peak_ram_mb = Column(Integer)
+    avg_cpu_percent = Column(Integer)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     script = relationship("Script", back_populates="runs")

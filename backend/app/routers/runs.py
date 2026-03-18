@@ -27,6 +27,8 @@ async def _enrich_run(run: ScriptRun, session: AsyncSession) -> dict:
         "attempt_number": run.attempt_number,
         "celery_task_id": run.celery_task_id,
         "worker_pid": run.worker_pid,
+        "peak_ram_mb": run.peak_ram_mb,
+        "avg_cpu_percent": run.avg_cpu_percent,
         "created_at": run.created_at,
     }
 

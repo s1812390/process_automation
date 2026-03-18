@@ -12,6 +12,8 @@ export interface Run {
   attempt_number: number
   celery_task_id?: string
   worker_pid?: number
+  peak_ram_mb?: number
+  avg_cpu_percent?: number
   created_at: string
 }
 

@@ -3,9 +3,11 @@ import os
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 from datetime import datetime, timezone
 
+import psutil
 import redis as redis_lib
 import structlog
 from celery import Task
@@ -64,6 +66,10 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
     tmp_params = None
     _lock_key = None  # set only when we acquire the scheduled-run distributed lock
     _proc_ref = [None]  # mutable ref so the SIGTERM handler can reach the subprocess
+    _peak_ram_mb = [0]
+    _cpu_samples = []
+    _sampling_stop = threading.Event()
+    _sampler = None
 
     # Install a SIGTERM handler so that `celery revoke(terminate=True)` cleanly kills
     # the child subprocess (not just the Celery worker process).  Without this the
@@ -274,11 +280,33 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
         )
         _proc_ref[0] = proc  # expose to SIGTERM handler
 
+        # Track subprocess PID in Redis for orphan detection
+        _redis.set(f"running_proc:{run_id}", proc.pid, ex=(effective_timeout + 120))
+
         start_time = time.time()
+
+        # Start resource sampling thread
+        def _sample_resources():
+            try:
+                p = psutil.Process(proc.pid)
+                while not _sampling_stop.wait(2.0):
+                    try:
+                        mem = p.memory_info().rss // (1024 * 1024)
+                        cpu = p.cpu_percent(interval=None)
+                        if mem > _peak_ram_mb[0]:
+                            _peak_ram_mb[0] = mem
+                        if cpu > 0:
+                            _cpu_samples.append(cpu)
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        break
+            except Exception:
+                pass
+
+        _sampler = threading.Thread(target=_sample_resources, daemon=True)
+        _sampler.start()
 
         # 7. Read stdout/stderr line by line with timeout
         import select as sel_module
-        import threading
 
         stdout_lines = []
         stderr_lines = []
@@ -307,10 +335,16 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
             proc.kill()
             stdout_thread.join(timeout=5)
             stderr_thread.join(timeout=5)
+            _sampling_stop.set()
+            _sampler.join(timeout=3)
             elapsed_ms = int((time.time() - start_time) * 1000)
             run.status = "timeout"
             run.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
             run.duration_ms = elapsed_ms
+            if _peak_ram_mb[0] > 0:
+                run.peak_ram_mb = _peak_ram_mb[0]
+            if _cpu_samples:
+                run.avg_cpu_percent = int(sum(_cpu_samples) / len(_cpu_samples))
             session.commit()
 
             _flush_logs(session, run_id, stdout_lines + stderr_lines)
@@ -319,6 +353,8 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 
         stdout_thread.join(timeout=10)
         stderr_thread.join(timeout=10)
+        _sampling_stop.set()
+        _sampler.join(timeout=3)
 
         elapsed_ms = int((time.time() - start_time) * 1000)
 
@@ -330,6 +366,10 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
         run.status = final_status
         run.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
         run.duration_ms = elapsed_ms
+        if _peak_ram_mb[0] > 0:
+            run.peak_ram_mb = _peak_ram_mb[0]
+        if _cpu_samples:
+            run.avg_cpu_percent = int(sum(_cpu_samples) / len(_cpu_samples))
         session.commit()
 
         # 11-12. Handle retry/alert
@@ -346,6 +386,18 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
         except Exception:
             pass
     finally:
+        # Stop resource sampler if still running
+        try:
+            _sampling_stop.set()
+            if _sampler is not None:
+                _sampler.join(timeout=3)
+        except Exception:
+            pass
+        # Remove Redis proc tracking key
+        try:
+            _redis.delete(f"running_proc:{run_id}")
+        except Exception:
+            pass
         # Restore the original SIGTERM handler before we exit
         try:
             signal.signal(signal.SIGTERM, _old_sigterm)

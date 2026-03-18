@@ -23,6 +23,8 @@ class RunResponse(BaseModel):
     attempt_number: int
     celery_task_id: Optional[str] = None
     worker_pid: Optional[int] = None
+    peak_ram_mb: Optional[int] = None
+    avg_cpu_percent: Optional[int] = None
     created_at: datetime
 
     class Config:

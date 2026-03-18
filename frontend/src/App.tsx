@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard'
 import Scripts from './pages/Scripts'
 import ScriptDetail from './pages/ScriptDetail'
 import RunDetail from './pages/RunDetail'
+import RunsPage from './pages/Runs'
 import SettingsPage from './pages/Settings'
 import VariablesPage from './pages/Variables'
 import { TimezoneProvider } from './context/TimezoneContext'
@@ -39,6 +40,7 @@ export default function App() {
           <main className="flex-1 overflow-y-auto p-6">
             <Routes>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/runs" element={<RunsPage />} />
               <Route path="/scripts" element={<Scripts />} />
               <Route path="/scripts/:id" element={<ScriptDetail />} />
               <Route path="/runs/:id" element={<RunDetail />} />

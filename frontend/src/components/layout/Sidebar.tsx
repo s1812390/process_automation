@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom'
-import { LayoutDashboard, Code2, Settings, Clock, Variable } from 'lucide-react'
+import { LayoutDashboard, Code2, Settings, Clock, Variable, Play } from 'lucide-react'
 import { clsx } from 'clsx'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/runs', icon: Play, label: 'Runs' },
   { to: '/scripts', icon: Code2, label: 'Scripts' },
   { to: '/variables', icon: Variable, label: 'Global Variables' },
   { to: '/settings', icon: Settings, label: 'Settings' },
