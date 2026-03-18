@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Plus, Play, Edit2, Trash2, ToggleLeft, ToggleRight, AlertCircle, Tag, AlertTriangle, Search } from 'lucide-react'
+import { Plus, Play, Edit2, Trash2, ToggleLeft, ToggleRight, AlertCircle, Tag, AlertTriangle, Search, Calculator } from 'lucide-react'
 import { scriptsApi, Script, ScriptCreate } from '../api/scripts'
 import { StatusBadge } from '../components/StatusBadge'
 import { ScriptEditor } from '../components/ScriptEditor'
@@ -216,22 +216,23 @@ function ScriptTableRows({
   toggleMutation,
   runMutation,
   onDelete,
-  timezone,
   formatDateTime,
+  nextRunsMap,
+  onCronClick,
 }: {
   scripts: Script[]
   toggleMutation: { mutate: (id: number) => void; isPending: boolean }
   runMutation: { mutate: (id: number) => void; isPending: boolean }
   onDelete: (script: Script) => void
-  timezone: string
   formatDateTime: (d: Date | string) => string
+  nextRunsMap: Record<number, Date | null>
+  onCronClick: (script: Script) => void
 }) {
   return (
     <>
       {scripts.map((script) => {
-        const nextRun = script.cron_expression && script.is_active
-          ? getNextCronRun(script.cron_expression, timezone)
-          : null
+        const nextRun = nextRunsMap[script.id]
+        const hasNextRun = script.id in nextRunsMap
         return (
         <tr key={script.id} className="border-t border-[rgba(99,112,156,0.06)] hover:bg-accent/[0.025]">
           <td className="px-4 py-3">
@@ -248,12 +249,16 @@ function ScriptTableRows({
           <td className="px-4 py-3">
             {script.cron_expression ? (
               <div>
-                <span className="text-[11px] font-mono font-[700] text-ink-2 bg-violet-dim px-2 py-0.5 rounded">
+                <button
+                  onClick={() => onCronClick(script)}
+                  title="Click to calculate next run"
+                  className="text-[11px] font-mono font-[700] text-ink-2 bg-violet-dim px-2 py-0.5 rounded hover:bg-violet/20 transition-colors cursor-pointer"
+                >
                   {describeCron(script.cron_expression)}
-                </span>
-                {nextRun && (
+                </button>
+                {hasNextRun && (
                   <div className="text-[10.5px] text-ink-3 mt-1">
-                    Next: {formatDateTime(nextRun)}
+                    {nextRun ? `Next: ${formatDateTime(nextRun)}` : 'No upcoming run'}
                   </div>
                 )}
               </div>
@@ -332,15 +337,17 @@ function ScriptTable({
   toggleMutation,
   runMutation,
   onDelete,
-  timezone,
   formatDateTime,
+  nextRunsMap,
+  onCronClick,
 }: {
   scripts: Script[]
   toggleMutation: { mutate: (id: number) => void; isPending: boolean }
   runMutation: { mutate: (id: number) => void; isPending: boolean }
   onDelete: (script: Script) => void
-  timezone: string
   formatDateTime: (d: Date | string) => string
+  nextRunsMap: Record<number, Date | null>
+  onCronClick: (script: Script) => void
 }) {
   return (
     <table className="w-full" style={{ tableLayout: 'fixed' }}>
@@ -368,8 +375,9 @@ function ScriptTable({
           toggleMutation={toggleMutation}
           runMutation={runMutation}
           onDelete={onDelete}
-          timezone={timezone}
           formatDateTime={formatDateTime}
+          nextRunsMap={nextRunsMap}
+          onCronClick={onCronClick}
         />
       </tbody>
     </table>
@@ -381,6 +389,8 @@ export default function Scripts() {
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
   const [scriptToDelete, setScriptToDelete] = useState<Script | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [nextRunsMap, setNextRunsMap] = useState<Record<number, Date | null>>({})
+  const [isCalculating, setIsCalculating] = useState(false)
   const queryClient = useQueryClient()
   const toast = useToast()
   const { timezone, formatDateTime } = useTimezone()
@@ -389,6 +399,34 @@ export default function Scripts() {
     queryKey: ['scripts'],
     queryFn: scriptsApi.list,
   })
+
+  // Toggle next run for a single script on cron badge click
+  const handleCronClick = (script: Script) => {
+    if (!script.cron_expression || !script.is_active) return
+    setNextRunsMap((prev) => {
+      if (script.id in prev) {
+        const next = { ...prev }
+        delete next[script.id]
+        return next
+      }
+      return { ...prev, [script.id]: getNextCronRun(script.cron_expression!, timezone) }
+    })
+  }
+
+  // Calculate next run for all scheduled+active scripts at once
+  const handleCalculateAll = () => {
+    setIsCalculating(true)
+    setTimeout(() => {
+      const map: Record<number, Date | null> = {}
+      for (const s of scripts) {
+        if (s.cron_expression && s.is_active) {
+          map[s.id] = getNextCronRun(s.cron_expression, timezone)
+        }
+      }
+      setNextRunsMap(map)
+      setIsCalculating(false)
+    }, 0)
+  }
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => scriptsApi.delete(id),
@@ -472,13 +510,24 @@ export default function Scripts() {
           <h2 className="text-[14.5px] font-[800] text-ink-1">All Scripts</h2>
           <p className="text-[12px] text-ink-3 mt-0.5">{scripts.length} scripts total</p>
         </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-[700] bg-gradient-to-br from-accent to-[#b00e49] text-white shadow-[0_3px_12px_rgba(224,24,92,0.3)] hover:-translate-y-px active:scale-[0.97] transition-all"
-        >
-          <Plus className="w-4 h-4" />
-          New Script
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleCalculateAll}
+            disabled={isCalculating || scripts.length === 0}
+            title="Calculate next run time for all scheduled scripts"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-[700] bg-white text-ink-2 border border-[rgba(99,112,156,0.2)] hover:border-violet hover:text-violet active:scale-[0.97] transition-all disabled:opacity-40"
+          >
+            <Calculator className="w-4 h-4" />
+            {isCalculating ? 'Calculating...' : 'Calculate Next Runs'}
+          </button>
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-[700] bg-gradient-to-br from-accent to-[#b00e49] text-white shadow-[0_3px_12px_rgba(224,24,92,0.3)] hover:-translate-y-px active:scale-[0.97] transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            New Script
+          </button>
+        </div>
       </div>
 
       {/* Search */}
@@ -565,8 +614,9 @@ export default function Scripts() {
                   toggleMutation={toggleMutation}
                   runMutation={runMutation}
                   onDelete={handleDelete}
-                  timezone={timezone}
                   formatDateTime={formatDateTime}
+                  nextRunsMap={nextRunsMap}
+                  onCronClick={handleCronClick}
                 />
               </div>
             </div>
@@ -580,8 +630,9 @@ export default function Scripts() {
             toggleMutation={toggleMutation}
             runMutation={runMutation}
             onDelete={handleDelete}
-            timezone={timezone}
             formatDateTime={formatDateTime}
+            nextRunsMap={nextRunsMap}
+            onCronClick={handleCronClick}
           />
         </div>
       )}
