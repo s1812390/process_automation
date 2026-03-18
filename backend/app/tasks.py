@@ -98,23 +98,34 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 
         # If called from beat scheduler without a run_id, create a new run
         if run_id is None:
-            # Distributed lock keyed by script + current 1-minute bucket.
+            # Distributed lock keyed by script only (no minute bucket).
             # This prevents duplicate execution when:
             #   - Two beat instances are running simultaneously (e.g. during deploy)
             #   - task_acks_late causes redelivery after a worker restart
             #   - Beat fires two copies into the queue before the first finishes
-            # We do NOT delete the lock after the task — we let it expire via TTL
-            # (300 s = 5 min). This means even if the first run finishes quickly,
-            # a second queued copy of the same minute's task is still blocked.
-            minute_bucket = int(time.time() // 60)
-            _lock_key = f"script_run_lock:{script_id}:{minute_bucket}"
-            acquired = _redis.set(_lock_key, self.request.id or "1", nx=True, ex=300)
+            # TTL is derived from the cron interval so short-interval crons (e.g.
+            # every minute) still fire correctly while long-interval crons are
+            # protected against firings that are several minutes apart.
+            # We do NOT delete the lock after the task — we let it expire via TTL.
+            dedup_ttl = 300
+            if script.cron_expression:
+                try:
+                    from croniter import croniter as _croniter
+                    _ci = _croniter(script.cron_expression)
+                    _t1 = _ci.get_next(float)
+                    _t2 = _ci.get_next(float)
+                    interval_sec = int(_t2 - _t1)
+                    dedup_ttl = max(55, min(300, interval_sec - 5))
+                except Exception:
+                    pass
+            _lock_key = f"script_run_lock:{script_id}"
+            acquired = _redis.set(_lock_key, self.request.id or "1", nx=True, ex=dedup_ttl)
             if not acquired:
                 _lock_key = None  # didn't acquire — nothing to release
                 logger.info(
                     "Skipping scheduled run: distributed lock already held",
                     script_id=script_id,
-                    minute_bucket=minute_bucket,
+                    dedup_ttl=dedup_ttl,
                 )
                 return
 
@@ -405,8 +416,8 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
             pass
         session.close()
         # Note: we intentionally do NOT delete _lock_key here.
-        # The time-bucketed lock expires via TTL (300 s) to block any duplicate
-        # tasks that beat may have enqueued for the same minute.
+        # The lock expires via TTL (dedup_ttl) to block any duplicate tasks
+        # that a second beat instance may fire within the dedup window.
         if tmp_script and os.path.exists(tmp_script):
             os.unlink(tmp_script)
         if tmp_req and os.path.exists(tmp_req):
