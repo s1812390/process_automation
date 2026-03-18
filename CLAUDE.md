@@ -239,11 +239,14 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE alembic_version'; EXCEPTION WHEN OTHERS THEN
 ## Beat Scheduler — важные детали
 
 `celery-beat` использует кастомный `DatabaseScheduler` (beat_schedule.py):
-- Читает скрипты из DB каждые 60 сек
+- Читает скрипты из DB каждые 60 сек (+ Redis force-reload сигнал из API при создании/активации скрипта)
 - Cron выражения интерпретируются в timezone из `SH_APP_SETTINGS.timezone`
 - Cron должен быть с пробелами: `* * * * *`, не `*****`
-- `last_run_at` сохраняется при обновлении — не сбрасывает расписание
-- Shelve-файл: `celerybeat-schedule` (внутри контейнера)
+- `last_run_at` для новых записей = `datetime.now(UTC)` — НЕ год 2000. Год 2000 вызывает немедленный старт.
+- Если `last_run_at.year < 2020` в существующей shelve-записи — сбрасывается в `now()` (защита от stale данных)
+- Shelve-файл: `celerybeat-schedule` (volume `celery_beat_schedule:/data`)
+- При деплое: CI удаляет beat-контейнер + volume → чистый старт без stale расписания
+- `_signal_beat_reload()` вызывается при create/toggle скрипта → beat подхватывает немедленно
 
 ## SH_APP_SETTINGS — известные ключи
 
@@ -277,6 +280,20 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE alembic_version'; EXCEPTION WHEN OTHERS THEN
 - **Alert messages**: включают Tag, human-readable статус и описательную фразу (email + Telegram)
 - **Global Alerts**: настройка в Settings → "Admin Alerts" секция (хранится в `SH_APP_SETTINGS`)
 
+## tasks.py — важные детали (после исправлений)
+
+- **SIGTERM handler**: установлен перед Popen. При `celery revoke(terminate=True)` → `os.killpg(os.getpgid(proc.pid), SIGTERM)` убивает весь process group subprocess'а. `os.setsid()` в `preexec_fn` создаёт новую группу процессов.
+- **Distributed lock**: `script_run_lock:{script_id}:{minute_bucket}` (TTL=300s, НЕ удаляется явно) — блокирует дублирующие задачи в пределах одной минуты.
+- **fork safety**: `worker_process_init` сигнал → `engine.dispose()` после форка. Event `checkout` (не `connect`) гарантирует UTC на каждом соединении.
+- **Temp files**: `tmp_script`, `tmp_req`, `tmp_params` — все три удаляются в `finally`. `tmp_params` = `SCHED_PARAMS_FILE` JSON файл.
+- **Default parameters**: при scheduled run — извлекаются из `parameters_schema` (поле `default`). Хранятся в `run.parameters` как JSON.
+
+## runs.py — важные детали (после исправлений)
+
+- **cancel_run**: использует только `celery_app.control.revoke(terminate=True, signal="SIGTERM")`. `os.kill(worker_pid)` УБРАН — API и worker в разных контейнерах, PID не пересекаются.
+- **SSE stream**: timeout 8 часов (защита от вечного поллинга при зависшем run). При таймауте шлёт `{type: "timeout"}`.
+- **date_from/date_to**: нормализуются в UTC naive через `_utc_naive()` перед сравнением с Oracle DATE колонками.
+
 ## cronUtils.ts — важные детали
 
 `frontend/src/utils/cronUtils.ts`:
@@ -295,7 +312,11 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE alembic_version'; EXCEPTION WHEN OTHERS THEN
 
 - **build stage** (параллельно): `build-backend`, `build-frontend`, `mirror-redis`
   - `mirror-redis`: пулит `redis:7-alpine` с Docker Hub на раннере и пушит в GitLab registry → сервер не обращается к Docker Hub напрямую
-- **deploy stage** (только `master`): SSH на сервер, `envsubst` подставляет переменные в `docker-compose.prod.yml`, `docker-compose pull && up -d`
+- **deploy stage** (только `master`): SSH на сервер, `envsubst` подставляет переменные в `docker-compose.prod.yml`, затем:
+  1. `docker-compose stop celery-beat && docker-compose rm -f celery-beat`
+  2. `docker volume rm ${CI_PROJECT_NAME}_celery_beat_schedule || true`
+  3. `docker-compose up -d --remove-orphans`
+- `--remove-orphans` убивает контейнеры от предыдущих деплоев
 - Раннер образ `governmentpaas/git-ssh` (Alpine) — `envsubst` устанавливается через `apk add gettext`
 - `COMPOSE_PATH` = `/data/docker-compose/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME`
 - `.env` файл лежит на сервере в `$COMPOSE_PATH/.env` (не в репо) — содержит Oracle credentials, TZ и др.
