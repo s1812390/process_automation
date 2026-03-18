@@ -216,6 +216,41 @@ def _get_runs_stats(redis_client) -> dict:
         session.close()
 
 
+@router.get("/container-logs/{container_name}")
+async def get_container_logs(container_name: str, tail: int = 200):
+    """Return the last N log lines for a named container in this compose project."""
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "process_automation")
+    try:
+        import docker
+        client = docker.from_env()
+        containers = client.containers.list(
+            filters={"label": f"com.docker.compose.project={project_name}"}
+        )
+        target = None
+        for c in containers:
+            name = c.name.lstrip("/")
+            short = name
+            prefix = f"{project_name}_"
+            if short.startswith(prefix):
+                short = short[len(prefix):]
+            if short == container_name or name == container_name:
+                target = c
+                break
+        if target is None:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Container not found")
+
+        raw = target.logs(tail=tail, timestamps=True)
+        lines = raw.decode("utf-8", errors="replace").splitlines()
+        return {"container": container_name, "lines": lines}
+    except Exception as e:
+        from fastapi import HTTPException
+        if isinstance(e, HTTPException):
+            raise
+        logger.warning("Failed to get container logs", container=container_name, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/stats")
 async def get_system_stats():
     project_name = os.environ.get("COMPOSE_PROJECT_NAME", "process_automation")

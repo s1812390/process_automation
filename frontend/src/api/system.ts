@@ -49,6 +49,13 @@ export interface SystemStats {
   runs: RunsStats
 }
 
+export interface ContainerLogsResponse {
+  container: string
+  lines: string[]
+}
+
 export const systemApi = {
   getStats: () => client.get<SystemStats>('/system/stats').then(r => r.data),
+  getContainerLogs: (name: string, tail = 200) =>
+    client.get<ContainerLogsResponse>(`/system/container-logs/${encodeURIComponent(name)}`, { params: { tail } }).then(r => r.data),
 }

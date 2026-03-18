@@ -338,7 +338,18 @@ export default function Runs() {
         ) : pageItems.length === 0 ? (
           <div className="px-6 py-10 text-center text-[13px] text-ink-3">No runs found.</div>
         ) : (
-          <table className="w-full">
+          <table className="w-full table-fixed">
+            <colgroup>
+              <col className="w-[22%]" />
+              <col className="w-[10%]" />
+              <col className="w-[9%]" />
+              <col className="w-[9%]" />
+              <col className="w-[13%]" />
+              <col className="w-[9%]" />
+              <col className="w-[9%]" />
+              <col className="w-[8%]" />
+              <col className="w-[11%]" />
+            </colgroup>
             <thead>
               <tr className="bg-[rgba(240,242,247,0.6)]">
                 <th className="text-left px-4 py-2.5 text-[10.5px] font-[700] uppercase tracking-[0.9px] text-ink-3">Script</th>
@@ -356,23 +367,22 @@ export default function Runs() {
               {pageItems.map((run) => (
                 <tr
                   key={run.id}
-                  className="border-t border-[rgba(99,112,156,0.06)] hover:bg-accent/[0.025] cursor-pointer"
-                  onClick={() => window.location.href = `/runs/${run.id}`}
+                  className="border-t border-[rgba(99,112,156,0.06)] hover:bg-accent/[0.025]"
                 >
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 min-w-0">
                     <Link
                       to={`/scripts/${run.script_id}`}
-                      className="text-[13.5px] font-[600] text-ink-1 hover:text-accent"
-                      onClick={(e) => e.stopPropagation()}
+                      className="block text-[13.5px] font-[600] text-ink-1 hover:text-accent truncate"
+                      title={run.script_name}
                     >
                       {run.script_name}
                     </Link>
                   </td>
                   <td className="px-4 py-3">
                     {scriptTagMap.get(run.script_id) ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-[700] bg-violet-dim text-violet">
-                        <Tag className="w-2.5 h-2.5" />
-                        {scriptTagMap.get(run.script_id)}
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-[700] bg-violet-dim text-violet truncate max-w-full">
+                        <Tag className="w-2.5 h-2.5 flex-shrink-0" />
+                        <span className="truncate">{scriptTagMap.get(run.script_id)}</span>
                       </span>
                     ) : (
                       <span className="text-[12px] text-ink-3">—</span>
@@ -400,7 +410,7 @@ export default function Runs() {
                   <td className="px-4 py-3 text-[12px] font-mono text-ink-2">
                     {run.avg_cpu_percent != null ? `${run.avg_cpu_percent}%` : '—'}
                   </td>
-                  <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-4 py-3 text-right">
                     <div className="flex items-center gap-2 justify-end">
                       <Link
                         to={`/runs/${run.id}`}

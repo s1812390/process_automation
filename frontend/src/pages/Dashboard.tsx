@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Code2, Play, CheckCircle, XCircle, AlertTriangle, Cpu, HardDrive, Container, Activity } from 'lucide-react'
+import { Code2, Play, CheckCircle, XCircle, AlertTriangle, Cpu, HardDrive, Container, Activity, X, Terminal } from 'lucide-react'
 import { runsApi } from '../api/runs'
 import { scriptsApi } from '../api/scripts'
 import { systemApi, SystemStats } from '../api/system'
@@ -8,7 +8,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { StatCard } from '../components/StatCard'
 import { formatDistanceToNow, subDays, startOfDay, endOfDay } from 'date-fns'
 import { parseUTC } from '../utils/dateUtils'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTimezone } from '../context/TimezoneContext'
 import { useToast } from '../components/Toast'
 
@@ -99,8 +99,50 @@ function ProgressBar({ value, max = 100, danger = false, warning = false }: { va
   )
 }
 
+function ContainerLogsModal({ name, onClose }: { name: string; onClose: () => void }) {
+  const bottomRef = useRef<HTMLDivElement>(null)
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['container-logs', name],
+    queryFn: () => systemApi.getContainerLogs(name, 300),
+    refetchInterval: 5000,
+  })
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView()
+  }, [data])
+
+  return (
+    <div className="fixed inset-0 bg-ink-1/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-[#0e1117] rounded-xl shadow-2xl w-full max-w-4xl flex flex-col" style={{ height: '80vh' }}>
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.07]">
+          <div className="flex items-center gap-2">
+            <Terminal className="w-4 h-4 text-success" />
+            <span className="text-[13px] font-[700] text-white font-mono">{name}</span>
+            <span className="text-[10px] font-[700] text-ink-3 uppercase tracking-wider">container logs</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-all"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 font-mono text-[11.5px] leading-relaxed">
+          {isLoading && <p className="text-white/40">Loading...</p>}
+          {isError && <p className="text-danger">Failed to load logs.</p>}
+          {data?.lines.map((line, i) => (
+            <div key={i} className="text-white/80 whitespace-pre-wrap break-all">{line}</div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SystemHealthSection({ stats }: { stats: SystemStats }) {
   const { host, containers, disk, log_files, runs } = stats
+  const [logsModal, setLogsModal] = useState<string | null>(null)
 
   return (
     <div className="space-y-4">
@@ -240,14 +282,22 @@ function SystemHealthSection({ stats }: { stats: SystemStats }) {
               <div className="text-[11.5px] font-[700] text-ink-2 mb-2">Container Log Files</div>
               <div className="space-y-1">
                 {log_files.map((f) => (
-                  <div key={f.name} className="flex items-center justify-between text-[11px]">
-                    <span className="text-ink-2 font-mono">{f.name}</span>
-                    <span className="text-ink-3">{f.size_mb != null ? `${f.size_mb.toFixed(1)} MB` : 'N/A'}</span>
-                  </div>
+                  <button
+                    key={f.name}
+                    onClick={() => setLogsModal(f.name)}
+                    className="w-full flex items-center justify-between text-[11px] px-2 py-1 rounded-lg hover:bg-bg transition-colors group"
+                  >
+                    <span className="text-ink-2 font-mono group-hover:text-violet flex items-center gap-1.5">
+                      <Terminal className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      {f.name}
+                    </span>
+                    <span className="text-ink-3">{f.size_mb != null ? `${f.size_mb.toFixed(1)} MB` : '—'}</span>
+                  </button>
                 ))}
               </div>
             </div>
           )}
+          {logsModal && <ContainerLogsModal name={logsModal} onClose={() => setLogsModal(null)} />}
         </div>
       </div>
 
