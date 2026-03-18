@@ -6,6 +6,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 
+import redis as redis_lib
 import structlog
 from celery import Task
 from sqlalchemy import create_engine, event, select
@@ -17,6 +18,7 @@ from app.config import settings
 logger = structlog.get_logger()
 
 _sync_engine = create_engine(settings.sync_database_url, pool_size=5, max_overflow=10)
+_redis = redis_lib.from_url(settings.redis_url, socket_connect_timeout=2)
 
 
 @event.listens_for(_sync_engine, "connect")
@@ -40,6 +42,7 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
     session = get_sync_session()
     tmp_script = None
     tmp_req = None
+    _lock_key = None  # set only when we acquire the scheduled-run distributed lock
 
     try:
         # 1. Load script from DB
@@ -50,6 +53,20 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 
         # If called from beat scheduler without a run_id, create a new run
         if run_id is None:
+            # Distributed lock: prevent two workers from running the same scheduled
+            # script concurrently (race condition on the status check below, or
+            # task_acks_late redelivery after a worker restart).
+            _lock_key = f"script_run_lock:{script_id}"
+            lock_ttl = (script.timeout_seconds or 3600) + 120  # timeout + buffer
+            acquired = _redis.set(_lock_key, self.request.id or "1", nx=True, ex=lock_ttl)
+            if not acquired:
+                _lock_key = None  # didn't acquire, don't release in finally
+                logger.info(
+                    "Skipping scheduled run: distributed lock already held",
+                    script_id=script_id,
+                )
+                return
+
             # Guard against duplicate scheduled runs (beat restart or double-delivery).
             # If this script already has a pending/running run, skip silently.
             from sqlalchemy import select as _select
@@ -285,6 +302,11 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
             pass
     finally:
         session.close()
+        if _lock_key:
+            try:
+                _redis.delete(_lock_key)
+            except Exception:
+                pass
         if tmp_script and os.path.exists(tmp_script):
             os.unlink(tmp_script)
         if tmp_req and os.path.exists(tmp_req):

@@ -6,12 +6,25 @@ from sqlalchemy import select, desc
 from typing import List, Optional
 from datetime import datetime, timezone
 
+import redis as redis_lib
+from app.config import settings
 from app.database import get_db
 from app.models import Script, ScriptRun
 from app.schemas.script import ScriptCreate, ScriptUpdate, ScriptResponse, ScriptListResponse
 from app.celery_app import get_queue_name
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"])
+
+_redis = redis_lib.from_url(settings.redis_url, socket_connect_timeout=2)
+_BEAT_RELOAD_KEY = "beat:force_reload"
+
+
+def _signal_beat_reload():
+    """Tell celery-beat to reload the schedule from DB on its next tick."""
+    try:
+        _redis.set(_BEAT_RELOAD_KEY, "1", ex=300)
+    except Exception:
+        pass  # non-critical — beat will reload on its regular 60s interval anyway
 
 
 def _gen_token() -> str:
@@ -67,6 +80,8 @@ async def create_script(data: ScriptCreate, session: AsyncSession = Depends(get_
     await session.flush()
     await session.refresh(script)
     enriched = await _enrich_script(script, session)
+    if script.is_active and script.cron_expression:
+        _signal_beat_reload()
     return ScriptResponse(**enriched)
 
 
@@ -86,12 +101,16 @@ async def update_script(
     script = await session.get(Script, script_id)
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
-    for field, value in data.model_dump(exclude_unset=True).items():
+    updated_fields = data.model_dump(exclude_unset=True)
+    for field, value in updated_fields.items():
         setattr(script, field, value)
     script.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     await session.flush()
     await session.refresh(script)
     enriched = await _enrich_script(script, session)
+    # Signal beat if schedule-related fields changed
+    if any(f in updated_fields for f in ("cron_expression", "is_active", "priority")):
+        _signal_beat_reload()
     return ScriptResponse(**enriched)
 
 
@@ -113,6 +132,8 @@ async def toggle_script(script_id: int, session: AsyncSession = Depends(get_db))
     await session.flush()
     await session.refresh(script)
     enriched = await _enrich_script(script, session)
+    if script.cron_expression:
+        _signal_beat_reload()
     return ScriptResponse(**enriched)
 
 
