@@ -129,9 +129,9 @@ class DatabaseScheduler(PersistentScheduler):
                         existing = self.schedule.get(task_name)
 
                         if existing is None:
-                            # New script — set last_run_at far in the past so it
-                            # fires on the next matching cron minute, not immediately
-                            # (Celery will compute remaining_delta normally)
+                            # New script — set last_run_at to NOW so Celery computes
+                            # the *next* matching cron slot from this moment forward.
+                            # Using year-2000 caused immediate firing on every startup.
                             self.schedule[task_name] = ScheduleEntry(
                                 name=task_name,
                                 task="app.tasks.execute_script",
@@ -140,12 +140,18 @@ class DatabaseScheduler(PersistentScheduler):
                                 kwargs={},
                                 options={"queue": _get_queue(script.priority)},
                                 app=self.app,
-                                last_run_at=datetime(2000, 1, 1, tzinfo=timezone.utc),
+                                last_run_at=datetime.now(timezone.utc),
                                 total_run_count=0,
                             )
                         elif tz_changed or _schedule_changed(existing.schedule, sched):
                             # Cron expression or timezone changed — recreate entry
                             # but preserve last_run_at so we don't double-fire
+                            last_run = existing.last_run_at
+                            # Guard against stale shelve data from old code that
+                            # stored year-2000 as last_run_at — reset to now so
+                            # beat doesn't treat the entry as overdue and fire early.
+                            if last_run is None or last_run.year < 2020:
+                                last_run = datetime.now(timezone.utc)
                             self.schedule[task_name] = ScheduleEntry(
                                 name=task_name,
                                 task="app.tasks.execute_script",
@@ -154,11 +160,26 @@ class DatabaseScheduler(PersistentScheduler):
                                 kwargs={},
                                 options={"queue": _get_queue(script.priority)},
                                 app=self.app,
-                                last_run_at=existing.last_run_at,
+                                last_run_at=last_run,
                                 total_run_count=existing.total_run_count,
                             )
-                        # else: entry unchanged — leave it alone so Celery Beat
-                        # state (last_run_at, total_run_count) is preserved
+                        else:
+                            # Entry unchanged — but still check for stale last_run_at
+                            # (leftover from previous code version that used year 2000)
+                            last_run = existing.last_run_at
+                            if last_run is None or last_run.year < 2020:
+                                self.schedule[task_name] = ScheduleEntry(
+                                    name=task_name,
+                                    task="app.tasks.execute_script",
+                                    schedule=sched,
+                                    args=(script.id,),
+                                    kwargs={},
+                                    options={"queue": _get_queue(script.priority)},
+                                    app=self.app,
+                                    last_run_at=datetime.now(timezone.utc),
+                                    total_run_count=existing.total_run_count,
+                                )
+                            # else: fully up-to-date — leave it alone
 
                     except Exception as e:
                         logger.warning("Invalid cron expression", script_id=script.id, error=str(e))

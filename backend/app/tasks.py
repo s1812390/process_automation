@@ -12,6 +12,8 @@ from celery import Task
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
+from celery.signals import worker_process_init
+
 from app.celery_app import celery_app, get_queue_name
 from app.config import settings
 
@@ -21,11 +23,28 @@ _sync_engine = create_engine(settings.sync_database_url, pool_size=5, max_overfl
 _redis = redis_lib.from_url(settings.redis_url, socket_connect_timeout=2)
 
 
-@event.listens_for(_sync_engine, "connect")
-def _force_utc_session(dbapi_conn, _):
+@event.listens_for(_sync_engine, "checkout")
+def _force_utc_session(dbapi_conn, connection_record, connection_proxy):
+    """Enforce UTC on every connection checkout from the pool.
+
+    Using 'checkout' (not 'connect') ensures the UTC session is set even on
+    connections that were established in the parent process before Celery
+    forked worker sub-processes (the fork-safety fix).
+    """
     cursor = dbapi_conn.cursor()
     cursor.execute("ALTER SESSION SET TIME_ZONE = '+00:00'")
     cursor.close()
+
+
+@worker_process_init.connect
+def _worker_process_init(**kwargs):
+    """Discard all inherited DB connections after Celery forks a worker process.
+
+    Without this, forked workers share the parent's connection pool objects.
+    Disposing forces each worker to open fresh connections (triggering the
+    'checkout' event above so UTC timezone is guaranteed).
+    """
+    _sync_engine.dispose()
 
 
 _SyncSession = sessionmaker(bind=_sync_engine)
@@ -53,17 +72,23 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 
         # If called from beat scheduler without a run_id, create a new run
         if run_id is None:
-            # Distributed lock: prevent two workers from running the same scheduled
-            # script concurrently (race condition on the status check below, or
-            # task_acks_late redelivery after a worker restart).
-            _lock_key = f"script_run_lock:{script_id}"
-            lock_ttl = (script.timeout_seconds or 3600) + 120  # timeout + buffer
-            acquired = _redis.set(_lock_key, self.request.id or "1", nx=True, ex=lock_ttl)
+            # Distributed lock keyed by script + current 1-minute bucket.
+            # This prevents duplicate execution when:
+            #   - Two beat instances are running simultaneously (e.g. during deploy)
+            #   - task_acks_late causes redelivery after a worker restart
+            #   - Beat fires two copies into the queue before the first finishes
+            # We do NOT delete the lock after the task — we let it expire via TTL
+            # (300 s = 5 min). This means even if the first run finishes quickly,
+            # a second queued copy of the same minute's task is still blocked.
+            minute_bucket = int(time.time() // 60)
+            _lock_key = f"script_run_lock:{script_id}:{minute_bucket}"
+            acquired = _redis.set(_lock_key, self.request.id or "1", nx=True, ex=300)
             if not acquired:
-                _lock_key = None  # didn't acquire, don't release in finally
+                _lock_key = None  # didn't acquire — nothing to release
                 logger.info(
                     "Skipping scheduled run: distributed lock already held",
                     script_id=script_id,
+                    minute_bucket=minute_bucket,
                 )
                 return
 
@@ -302,11 +327,9 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
             pass
     finally:
         session.close()
-        if _lock_key:
-            try:
-                _redis.delete(_lock_key)
-            except Exception:
-                pass
+        # Note: we intentionally do NOT delete _lock_key here.
+        # The time-bucketed lock expires via TTL (300 s) to block any duplicate
+        # tasks that beat may have enqueued for the same minute.
         if tmp_script and os.path.exists(tmp_script):
             os.unlink(tmp_script)
         if tmp_req and os.path.exists(tmp_req):

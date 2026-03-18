@@ -58,4 +58,12 @@ deploy:
     - ssh finuser@$SSH_SERVER_HOST mkdir -p $COMPOSE_PATH
     - envsubst < docker-compose.prod.yml > /tmp/docker-compose.rendered.yml
     - scp /tmp/docker-compose.rendered.yml finuser@$SSH_SERVER_HOST:$COMPOSE_PATH/docker-compose.yml
-    - ssh finuser@$SSH_SERVER_HOST "cd $COMPOSE_PATH && docker-compose pull && docker-compose up -d"
+    - |
+      ssh finuser@$SSH_SERVER_HOST "
+        cd $COMPOSE_PATH &&
+        docker-compose pull &&
+        docker-compose stop celery-beat &&
+        docker-compose rm -f celery-beat &&
+        docker volume rm ${CI_PROJECT_NAME}_celery_beat_schedule || true &&
+        docker-compose up -d --remove-orphans
+      "
