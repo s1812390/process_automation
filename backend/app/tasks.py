@@ -61,7 +61,27 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
     session = get_sync_session()
     tmp_script = None
     tmp_req = None
+    tmp_params = None
     _lock_key = None  # set only when we acquire the scheduled-run distributed lock
+    _proc_ref = [None]  # mutable ref so the SIGTERM handler can reach the subprocess
+
+    # Install a SIGTERM handler so that `celery revoke(terminate=True)` cleanly kills
+    # the child subprocess (not just the Celery worker process).  Without this the
+    # subprocess becomes an orphan and keeps running after cancel.
+    def _sigterm_handler(signum, frame):
+        p = _proc_ref[0]
+        if p is not None and p.poll() is None:
+            try:
+                # Kill the whole process group so any grandchildren are also killed
+                os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+            except Exception:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+        raise SystemExit(0)
+
+    _old_sigterm = signal.signal(signal.SIGTERM, _sigterm_handler)
 
     try:
         # 1. Load script from DB
@@ -222,12 +242,14 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
                         mode="w", suffix=".json", prefix=f"params_{run_id}_", delete=False
                     ) as pf:
                         json.dump(params, pf)
+                        tmp_params = pf.name  # track for cleanup in finally
                         child_env["SCHED_PARAMS_FILE"] = pf.name
             except Exception:
                 pass
 
         # 6. Build preexec_fn for resource limits
         def preexec():
+            os.setsid()  # new process group — lets us killpg the whole tree on cancel
             if effective_cpu is not None:
                 try:
                     os.sched_setaffinity(0, set(range(effective_cpu)))
@@ -250,6 +272,7 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
             env=child_env,
             preexec_fn=preexec,
         )
+        _proc_ref[0] = proc  # expose to SIGTERM handler
 
         start_time = time.time()
 
@@ -300,9 +323,6 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
         elapsed_ms = int((time.time() - start_time) * 1000)
 
         # 8. Flush all collected logs
-        all_lines = sorted(
-            [(s, l) for s, l in stdout_lines] + [(s, l) for s, l in stderr_lines]
-        )
         _flush_logs(session, run_id, stdout_lines + stderr_lines)
 
         # 9. Update status
@@ -326,6 +346,11 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
         except Exception:
             pass
     finally:
+        # Restore the original SIGTERM handler before we exit
+        try:
+            signal.signal(signal.SIGTERM, _old_sigterm)
+        except Exception:
+            pass
         session.close()
         # Note: we intentionally do NOT delete _lock_key here.
         # The time-bucketed lock expires via TTL (300 s) to block any duplicate
@@ -334,6 +359,8 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
             os.unlink(tmp_script)
         if tmp_req and os.path.exists(tmp_req):
             os.unlink(tmp_req)
+        if tmp_params and os.path.exists(tmp_params):
+            os.unlink(tmp_params)
 
 
 def _flush_logs(session, run_id: int, lines: list):

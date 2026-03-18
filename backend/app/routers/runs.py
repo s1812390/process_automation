@@ -1,10 +1,10 @@
 import asyncio
 from datetime import datetime, timezone
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
-from typing import List, Optional
 
 from app.database import get_db
 from app.models import Script, ScriptRun, RunLog
@@ -42,6 +42,20 @@ async def list_runs(
     date_to: Optional[datetime] = None,
     session: AsyncSession = Depends(get_db),
 ):
+    # Normalize date filters to UTC naive so they compare correctly against Oracle
+    # DATE columns (which are stored as naive UTC).  If the client sends a
+    # timezone-aware datetime (e.g. "2026-03-18T00:00:00+05:00"), convert to UTC
+    # first; if it sends a naive datetime, assume it is already UTC.
+    def _utc_naive(dt: Optional[datetime]) -> Optional[datetime]:
+        if dt is None:
+            return None
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+
+    date_from = _utc_naive(date_from)
+    date_to = _utc_naive(date_to)
+
     query = select(ScriptRun)
     if script_ids:
         query = query.where(ScriptRun.script_id.in_(script_ids))
@@ -100,8 +114,6 @@ async def get_run(run_id: int, session: AsyncSession = Depends(get_db)):
 
 @router.delete("/{run_id}", status_code=204)
 async def cancel_run(run_id: int, session: AsyncSession = Depends(get_db)):
-    import os
-    import signal
     from app.celery_app import celery_app
 
     run = await session.get(ScriptRun, run_id)
@@ -110,14 +122,14 @@ async def cancel_run(run_id: int, session: AsyncSession = Depends(get_db)):
     if run.status not in ("running", "pending"):
         raise HTTPException(status_code=400, detail="Run is not active")
 
+    # Revoke the Celery task and send SIGTERM to the worker process.
+    # The execute_script task has a SIGTERM handler that kills the subprocess
+    # process group (os.killpg), so the actual Python script is terminated cleanly.
+    # Note: os.kill(worker_pid) is intentionally NOT used here — the API runs in a
+    # different container from celery-worker, so that PID refers to an unrelated
+    # process in this container.
     if run.celery_task_id:
         celery_app.control.revoke(run.celery_task_id, terminate=True, signal="SIGTERM")
-
-    if run.worker_pid:
-        try:
-            os.kill(run.worker_pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
-            pass
 
     run.status = "cancelled"
     run.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -152,12 +164,19 @@ async def get_run_logs(run_id: int, session: AsyncSession = Depends(get_db)):
 async def stream_logs(run_id: int, session: AsyncSession = Depends(get_db)):
     import json
 
+    _SSE_TIMEOUT = 8 * 3600  # 8 hours — safety net if a run gets permanently stuck
+
     async def event_generator():
         from app.database import AsyncSessionLocal
         offset = 0
+        deadline = asyncio.get_event_loop().time() + _SSE_TIMEOUT
 
         async with AsyncSessionLocal() as db:
             while True:
+                if asyncio.get_event_loop().time() > deadline:
+                    yield f"data: {json.dumps({'type': 'timeout', 'message': 'Stream closed after 8 hours'})}\n\n"
+                    return
+
                 # Check run status
                 run = await db.get(ScriptRun, run_id)
                 if not run:
