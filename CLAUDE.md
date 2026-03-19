@@ -45,7 +45,8 @@ process_automation/
 │   │   │   ├── settings.py      # GET/PUT global app settings
 │   │   │   ├── alerts.py        # Alert config CRUD
 │   │   │   ├── variables.py     # Global variables CRUD
-│   │   │   └── webhooks.py      # POST /api/webhooks/{token}
+│   │   │   ├── webhooks.py      # POST /api/webhooks/{token}
+│   │   │   └── system.py        # GET /api/system/stats (psutil + Docker SDK); GET /api/system/container-logs/{name}
 │   │   └── services/
 │   │       └── alerts.py        # Email/Telegram send logic
 │   ├── alembic/
@@ -53,33 +54,36 @@ process_automation/
 │   │   └── versions/
 │   │       ├── 001_initial_schema.py   # All base tables (idempotent)
 │   │       ├── 002_features.py         # webhook_token, parameters_schema, SH_GLOBAL_VARS
-│   │       └── 003_tags.py             # tag column on SH_SCRIPTS
+│   │       ├── 003_tags.py             # tag column on SH_SCRIPTS
+│   │       └── 004_run_resources.py    # peak_ram_mb, avg_cpu_percent on SH_SCRIPT_RUNS
 │   ├── requirements.txt         # oracledb==2.3.0 (must be >=2.0)
 │   └── Dockerfile
 ├── frontend/
 │   ├── Dockerfile               # Multi-stage: node:20 build + nginx:1.25 serve
 │   └── src/
-│       ├── App.tsx              # Routes: / /scripts /scripts/:id /runs/:id /variables /settings
+│       ├── App.tsx              # Routes: / /runs /scripts /scripts/:id /runs/:id /variables /settings
 │       ├── context/
 │       │   └── TimezoneContext.tsx  # Timezone from settings, formatDateTime helper
 │       ├── api/
 │       │   ├── client.ts        # Axios, baseURL=/api
 │       │   ├── scripts.ts       # Scripts + alerts API
-│       │   ├── runs.ts          # Runs API
+│       │   ├── runs.ts          # Runs API (includes peak_ram_mb, avg_cpu_percent)
 │       │   ├── variables.ts     # Global variables API
-│       │   └── settings.ts      # Settings API
+│       │   ├── settings.ts      # Settings API
+│       │   └── system.ts        # System stats + container logs API
 │       ├── pages/
-│       │   ├── Dashboard.tsx    # Stats + live running + recent runs
+│       │   ├── Dashboard.tsx    # Stats + live running + System Health (host/containers/disk/logs, refresh 10s)
+│       │   ├── Runs.tsx         # Full runs list: filters (date, status, triggered_by, tag, script name) + RAM/CPU cols
 │       │   ├── Scripts.tsx      # Scripts list + create modal
 │       │   ├── ScriptDetail.tsx # 6 tabs: Editor/Requirements/Settings/Parameters/Alerts/History
-│       │   ├── RunDetail.tsx    # Logs viewer, back link → /scripts/:id?tab=history
+│       │   ├── RunDetail.tsx    # Logs viewer, back link → /runs
 │       │   ├── Variables.tsx    # Global variables CRUD table
 │       │   └── Settings.tsx     # App-wide settings form
 │       ├── utils/
 │       │   ├── cronUtils.ts         # getNextCronRun(expr, tz): Date|null; describeCron(expr): string
 │       │   └── dateUtils.ts         # parseUTC(s): Date — always parses timestamps as UTC
 │       └── components/
-│           ├── layout/Sidebar.tsx   # Nav: Dashboard, Scripts, Global Variables, Settings
+│           ├── layout/Sidebar.tsx   # Nav: Dashboard, Runs, Scripts, Global Variables, Settings
 │           ├── layout/Header.tsx    # Dynamic page title
 │           ├── LogViewer.tsx        # Terminal log viewer + SSE streaming
 │           ├── ScriptEditor.tsx     # Monaco editor wrapper
@@ -173,16 +177,18 @@ api_key = os.environ["MY_API_KEY"]  # set in Global Variables page
 | POST | `/api/alerts/{id}/test` | Send test alert for a config |
 | DELETE | `/api/alerts/{id}` | Delete alert |
 | POST | `/api/webhooks/{token}` | Webhook trigger |
+| GET | `/api/system/stats` | Host CPU/RAM, container stats (Docker SDK), disk, log file sizes, orphan runs |
+| GET | `/api/system/container-logs/{name}` | Last N log lines from a container (Docker SDK) |
 | GET | `/api/docs` | Swagger UI |
 
 ---
 
 ## Migrations — How to Add a Column
 
-1. Create `backend/alembic/versions/003_my_change.py`:
+1. Create `backend/alembic/versions/005_my_change.py`:
 ```python
-revision = "003"
-down_revision = "002"
+revision = "005"
+down_revision = "004"
 
 def upgrade():
     conn = op.get_bind()
@@ -270,8 +276,9 @@ BEGIN EXECUTE IMMEDIATE 'DROP TABLE alembic_version'; EXCEPTION WHEN OTHERS THEN
 
 ## UI Features (добавлены)
 
-- **Scripts page**: поиск по name/description (client-side); Schedule column показывает `describeCron()` + "Next: ..."
-- **Dashboard Recent Runs**: поиск по script_name — при активном поиске грузит `page_size=1000` и пагинирует клиентски
+- **Scripts page**: поиск по name/description (client-side); Schedule column — кликнул на cron badge → считает next run только для этого скрипта (toggle); кнопка "Calculate Next Runs" → считает для всех, хранит в `useState` до конца сессии. `getNextCronRun` НЕ вызывается автоматически при рендере — это было бы 150×10080 итераций на каждый рендер.
+- **Runs page** (`/runs`): полноценная страница всех запусков с фильтрами (дата, статус, triggered_by, тег, имя скрипта), колонки peak RAM и avg CPU
+- **Dashboard**: System Health секция — host CPU/RAM (psutil), таблица контейнеров (Docker SDK), disk usage (/tmp + /data), размеры лог-файлов (кликабельны → popup с последними строками), детектор orphan runs. Refresh каждые 10s.
 - **ScriptDetail → History**: пагинация 15/страницу + фильтр по периоду (по умолчанию последние 30 дней)
 - **ScriptDetail → Alerts**: кнопка "Test" → `POST /api/alerts/{id}/test` → toast с результатом
 - **Variables page**: значения скрыты (`••••`), кнопки Eye/Copy появляются при hover
