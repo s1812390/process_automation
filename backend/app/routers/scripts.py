@@ -1,6 +1,6 @@
 import json
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from typing import List, Optional
@@ -154,7 +154,7 @@ async def regenerate_webhook(script_id: int, session: AsyncSession = Depends(get
 async def run_script_now(
     script_id: int,
     session: AsyncSession = Depends(get_db),
-    body: Optional[dict] = None,
+    body: Optional[dict] = Body(default=None),
 ):
     from app.tasks import execute_script
 
