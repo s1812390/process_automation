@@ -248,14 +248,13 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
             child_env[gv.key] = gv.value or ""
 
         # Inject run parameters as PARAM_<NAME>=value
-        logger.info("execute_script: run.parameters from DB", run_id=run_id, run_parameters=run.parameters)
         if run.parameters:
             try:
                 params = json.loads(run.parameters)
                 if isinstance(params, dict):
                     for k, v in params.items():
-                        env_key = f"PARAM_{k.upper()}"
-                        logger.info("execute_script: injecting env var", env_key=env_key, value=v)
+                        upper = k.upper()
+                        env_key = upper if upper.startswith("PARAM_") else f"PARAM_{upper}"
                         child_env[env_key] = str(v)
                     # Also write a JSON file for convenience
                     with tempfile.NamedTemporaryFile(

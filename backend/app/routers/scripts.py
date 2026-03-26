@@ -5,10 +5,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from typing import List, Optional
 from datetime import datetime, timezone
-import structlog
-
-logger = structlog.get_logger()
-
 import redis as redis_lib
 from app.config import settings
 from app.database import get_db
@@ -171,8 +167,6 @@ async def run_script_now(
     except Exception:
         body = None
 
-    logger.info("run_script_now called", script_id=script_id, body=body)
-
     script = await session.get(Script, script_id)
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
@@ -198,7 +192,6 @@ async def run_script_now(
             pass
 
     params_json = json.dumps(effective_params) if effective_params else None
-    logger.info("run_script_now: storing run", effective_params=effective_params, params_json=params_json)
 
     run = ScriptRun(
         script_id=script.id,

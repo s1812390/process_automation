@@ -308,7 +308,7 @@ export default function ScriptDetail() {
                 Cancel
               </button>
               <button
-                onClick={() => { console.log('[RunNow] sending params:', JSON.stringify(runParamValues)); setShowRunModal(false); runMutation.mutate(runParamValues) }}
+                onClick={() => { setShowRunModal(false); runMutation.mutate(runParamValues) }}
                 disabled={runMutation.isPending}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-[13px] font-[700] bg-gradient-to-br from-accent to-[#b00e49] text-white shadow-[0_3px_12px_rgba(224,24,92,0.3)] hover:-translate-y-px active:scale-[0.97] transition-all disabled:opacity-50"
               >
