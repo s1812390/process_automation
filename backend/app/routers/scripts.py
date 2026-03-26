@@ -1,10 +1,13 @@
 import json
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from typing import List, Optional
 from datetime import datetime, timezone
+import structlog
+
+logger = structlog.get_logger()
 
 import redis as redis_lib
 from app.config import settings
@@ -153,10 +156,22 @@ async def regenerate_webhook(script_id: int, session: AsyncSession = Depends(get
 @router.post("/{script_id}/run", status_code=status.HTTP_201_CREATED)
 async def run_script_now(
     script_id: int,
+    request: Request,
     session: AsyncSession = Depends(get_db),
-    body: Optional[dict] = None,
 ):
     from app.tasks import execute_script
+
+    # Explicitly parse JSON body — more reliable than body: Optional[dict] = None
+    # which can behave inconsistently across FastAPI/Pydantic versions.
+    body = None
+    try:
+        raw = await request.body()
+        if raw:
+            body = json.loads(raw)
+    except Exception:
+        body = None
+
+    logger.info("run_script_now called", script_id=script_id, body=body)
 
     script = await session.get(Script, script_id)
     if not script:
@@ -165,7 +180,7 @@ async def run_script_now(
     # Strip empty-string values from the body: an empty string means "not provided",
     # not "override with empty".  This makes Run Now consistent with scheduled runs
     # where empty/null defaults are also filtered out before injection.
-    effective_params = {k: v for k, v in body.items() if v is not None and v != ''} if body else None
+    effective_params = {k: v for k, v in body.items() if v is not None and v != ''} if isinstance(body, dict) else None
 
     # If no non-empty parameters provided, fall back to defaults from parameters_schema
     if not effective_params and script.parameters_schema:
@@ -182,12 +197,15 @@ async def run_script_now(
         except Exception:
             pass
 
+    params_json = json.dumps(effective_params) if effective_params else None
+    logger.info("run_script_now: storing run", effective_params=effective_params, params_json=params_json)
+
     run = ScriptRun(
         script_id=script.id,
         status="pending",
         triggered_by="manual",
         attempt_number=1,
-        parameters=json.dumps(effective_params) if effective_params else None,
+        parameters=params_json,
     )
     session.add(run)
     await session.flush()
