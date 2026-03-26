@@ -283,7 +283,7 @@ export default function ScriptDetail() {
                 {p.type === 'bool' ? (
                   <select
                     value={runParamValues[p.name] || ''}
-                    onChange={(e) => setRunParamValues({ ...runParamValues, [p.name]: e.target.value })}
+                    onChange={(e) => { const v = e.target.value; setRunParamValues(prev => ({ ...prev, [p.name]: v })) }}
                     className="w-full px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] focus:outline-none focus:border-violet"
                   >
                     <option value="true">true</option>
@@ -293,7 +293,7 @@ export default function ScriptDetail() {
                   <input
                     type={p.type === 'int' || p.type === 'float' ? 'number' : 'text'}
                     value={runParamValues[p.name] || ''}
-                    onChange={(e) => setRunParamValues({ ...runParamValues, [p.name]: e.target.value })}
+                    onChange={(e) => { const v = e.target.value; setRunParamValues(prev => ({ ...prev, [p.name]: v })) }}
                     placeholder={p.default || `Enter ${p.name}`}
                     className="w-full px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
                   />

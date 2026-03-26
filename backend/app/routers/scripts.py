@@ -162,8 +162,12 @@ async def run_script_now(
     if not script:
         raise HTTPException(status_code=404, detail="Script not found")
 
-    # If no parameters provided, fall back to defaults from parameters_schema
-    effective_params = body
+    # Strip empty-string values from the body: an empty string means "not provided",
+    # not "override with empty".  This makes Run Now consistent with scheduled runs
+    # where empty/null defaults are also filtered out before injection.
+    effective_params = {k: v for k, v in body.items() if v is not None and v != ''} if body else None
+
+    # If no non-empty parameters provided, fall back to defaults from parameters_schema
     if not effective_params and script.parameters_schema:
         try:
             schema = json.loads(script.parameters_schema)
