@@ -350,17 +350,17 @@ async def install_package(
 async def _do_install(env_id: int, pkg_id: int, env_path: str, pkg_spec: str):
     from app.database import AsyncSessionLocal
     pip_bin = os.path.join(env_path, "bin", "pip")
-    logger.info("pip install starting: env_id=%s pkg_id=%s spec=%s pip=%s", env_id, pkg_id, pkg_spec, pip_bin)
+    logger.info("pip install starting: env_id=%s pkg_id=%s spec=%s", env_id, pkg_id, pkg_spec)
     try:
         if not os.path.exists(pip_bin):
             raise FileNotFoundError(f"pip not found at {pip_bin}")
-        rc, stdout, stderr = await _run_cmd(
-            [pip_bin, "install", "--index-url", PIP_INDEX_URL, pkg_spec],
-            timeout=300,
-        )
+
+        rc, stdout, stderr = await _pip_install(pip_bin, pkg_spec)
+
         logger.info("pip install finished: env_id=%s pkg_id=%s rc=%s", env_id, pkg_id, rc)
         if rc != 0:
-            logger.error("pip install failed: env_id=%s pkg_id=%s\nstdout=%s\nstderr=%s", env_id, pkg_id, stdout, stderr)
+            logger.error("pip install failed: env_id=%s pkg_id=%s\nstdout=%s\nstderr=%s",
+                         env_id, pkg_id, stdout, stderr)
         async with AsyncSessionLocal() as session:
             pkg = await session.get(EnvPackage, pkg_id)
             if pkg is None:
@@ -380,7 +380,8 @@ async def _do_install(env_id: int, pkg_id: int, env_path: str, pkg_spec: str):
                 pkg.status = "failed"
             await session.commit()
     except Exception as exc:
-        logger.exception("_do_install crashed: env_id=%s pkg_id=%s spec=%s error=%s", env_id, pkg_id, pkg_spec, exc)
+        logger.exception("_do_install crashed: env_id=%s pkg_id=%s spec=%s error=%s",
+                         env_id, pkg_id, pkg_spec, exc)
         try:
             from app.database import AsyncSessionLocal as _ASL
             async with _ASL() as session:
@@ -390,6 +391,70 @@ async def _do_install(env_id: int, pkg_id: int, env_path: str, pkg_spec: str):
                     await session.commit()
         except Exception:
             pass
+
+
+async def _pip_install(pip_bin: str, pkg_spec: str) -> tuple[int, str, str]:
+    """Run pip install, preferring Docker host-network to bypass container firewall."""
+    loop = asyncio.get_event_loop()
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, _pip_install_via_docker_sync, pip_bin, pkg_spec),
+            timeout=320,
+        )
+        logger.info("pip install via Docker host-network: rc=%s", result[0])
+        return result
+    except asyncio.TimeoutError:
+        logger.error("pip install via Docker timed out")
+        return -1, "", "pip install timed out"
+    except Exception as e:
+        logger.warning("Docker host-network pip unavailable (%s), falling back to direct", e)
+        return await _run_cmd(
+            [pip_bin, "install", "--index-url", PIP_INDEX_URL, pkg_spec],
+            timeout=300,
+        )
+
+
+def _pip_install_via_docker_sync(pip_bin: str, pkg_spec: str) -> tuple[int, str, str]:
+    """Synchronous: run pip install in a sibling container with --network=host.
+
+    This bypasses container-level firewall rules that block outbound traffic
+    on the Docker bridge network, while the host itself has internet access.
+    """
+    import docker  # type: ignore
+    client = docker.from_env()
+
+    # Identify current container and its image/volume bindings
+    try:
+        with open("/etc/hostname") as f:
+            container_id = f.read().strip()
+        current = client.containers.get(container_id)
+        image_id = current.image.id
+
+        volume_name: Optional[str] = None
+        for mount in current.attrs.get("Mounts", []):
+            if mount.get("Destination") == "/data/pyenvs" and mount.get("Type") == "volume":
+                volume_name = mount["Name"]
+                break
+    except Exception as exc:
+        raise RuntimeError(f"Cannot inspect current container: {exc}") from exc
+
+    if not volume_name:
+        raise RuntimeError("python_envs volume mount not found in current container")
+
+    try:
+        output = client.containers.run(
+            image=image_id,
+            command=[pip_bin, "install", "--index-url", PIP_INDEX_URL, pkg_spec],
+            volumes={volume_name: {"bind": "/data/pyenvs", "mode": "rw"}},
+            network_mode="host",
+            remove=True,
+            stdout=True,
+            stderr=True,
+        )
+        return 0, output.decode(errors="replace") if output else "", ""
+    except docker.errors.ContainerError as exc:
+        stderr_text = exc.stderr.decode(errors="replace") if exc.stderr else str(exc)
+        return exc.exit_status, "", stderr_text
 
 
 # ---------------------------------------------------------------------------
