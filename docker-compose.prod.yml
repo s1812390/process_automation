@@ -79,3 +79,9 @@ services:
 volumes:
   celery_beat_schedule:
   python_envs:
+
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: "1400"

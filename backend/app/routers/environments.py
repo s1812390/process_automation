@@ -394,88 +394,12 @@ async def _do_install(env_id: int, pkg_id: int, env_path: str, pkg_spec: str):
 
 
 async def _pip_install(pip_bin: str, pkg_spec: str) -> tuple[int, str, str]:
-    """Run pip install, preferring Docker host-network to bypass container firewall."""
-    loop = asyncio.get_event_loop()
-    try:
-        result = await asyncio.wait_for(
-            loop.run_in_executor(None, _pip_install_via_docker_sync, pip_bin, pkg_spec),
-            timeout=320,
-        )
-        logger.info("pip install via Docker host-network: rc=%s", result[0])
-        return result
-    except asyncio.TimeoutError:
-        logger.error("pip install via Docker timed out")
-        return -1, "", "pip install timed out"
-    except Exception as e:
-        logger.warning("Docker host-network pip unavailable (%s), falling back to direct", e)
-        return await _run_cmd(
-            [pip_bin, "install", "--index-url", PIP_INDEX_URL, pkg_spec],
-            timeout=300,
-        )
-
-
-def _pip_install_via_docker_sync(pip_bin: str, pkg_spec: str) -> tuple[int, str, str]:
-    """Synchronous: run pip install in a sibling container with --network=host.
-
-    This bypasses container-level firewall rules that block outbound traffic
-    on the Docker bridge network, while the host itself has internet access.
-    """
-    import docker  # type: ignore
-    client = docker.from_env()
-
-    # Identify current container and its image/volume bindings
-    try:
-        with open("/etc/hostname") as f:
-            container_id = f.read().strip()
-        current = client.containers.get(container_id)
-        image_id = current.image.id
-
-        volume_name: Optional[str] = None
-        for mount in current.attrs.get("Mounts", []):
-            if mount.get("Destination") == "/data/pyenvs" and mount.get("Type") == "volume":
-                volume_name = mount["Name"]
-                break
-    except Exception as exc:
-        raise RuntimeError(f"Cannot inspect current container: {exc}") from exc
-
-    if not volume_name:
-        raise RuntimeError("python_envs volume mount not found in current container")
-
-    # Pass proxy env vars so pip inside the container can reach external servers.
-    # These come from the backend container's own environment (set via .env / docker-compose).
-    env_vars: dict = {}
-    for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "no_proxy", "NO_PROXY"):
-        val = os.environ.get(key)
-        if val:
-            env_vars[key] = val
-
-    logger.info("Docker pip: container=%s image=%.12s volume=%s proxy_vars=%s",
-                container_id, image_id, volume_name, list(env_vars.keys()))
-
-    # Prefer IPv4 in the spawned container: broken IPv6 causes ReadTimeoutError in pip.
-    import shlex
-    cmd = (
-        "printf 'precedence ::ffff:0:0/96  100\\n' >> /etc/gai.conf && "
-        f"{shlex.quote(pip_bin)} install "
-        f"--index-url {shlex.quote(PIP_INDEX_URL)} "
-        f"{shlex.quote(pkg_spec)}"
+    """Run pip install directly. Docker bridge MTU is set to 1400 in docker-compose
+    to avoid the MTU black-hole problem (TCP connects but TLS/data stalls)."""
+    return await _run_cmd(
+        [pip_bin, "install", "--timeout", "120", "--index-url", PIP_INDEX_URL, pkg_spec],
+        timeout=600,
     )
-
-    try:
-        output = client.containers.run(
-            image=image_id,
-            command=["sh", "-c", cmd],
-            volumes={volume_name: {"bind": "/data/pyenvs", "mode": "rw"}},
-            network_mode="host",
-            environment=env_vars,
-            remove=True,
-            stdout=True,
-            stderr=True,
-        )
-        return 0, output.decode(errors="replace") if output else "", ""
-    except docker.errors.ContainerError as exc:
-        stderr_text = exc.stderr.decode(errors="replace") if exc.stderr else str(exc)
-        return exc.exit_status, "", stderr_text
 
 
 # ---------------------------------------------------------------------------

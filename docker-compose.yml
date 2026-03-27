@@ -20,7 +20,7 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - PIP_INDEX_URL=https://pypi.org/simple/
+      - PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple/
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -45,7 +45,7 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - PIP_INDEX_URL=https://pypi.org/simple/
+      - PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple/
     dns:
       - 8.8.8.8
       - 8.8.4.4
@@ -87,3 +87,9 @@ services:
 volumes:
   celery_beat_schedule:
   python_envs:
+
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: "1400"
