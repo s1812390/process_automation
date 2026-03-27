@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, RefreshCw, Package, AlertCircle, CheckCircle, Clock, X, ChevronRight, HardDrive, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, RefreshCw, Package, AlertCircle, CheckCircle, Clock, X, ChevronRight, HardDrive, AlertTriangle, Lock } from 'lucide-react'
 import { environmentsApi, PythonEnv, EnvPackage } from '../api/environments'
 import { useToast } from '../components/Toast'
 import { clsx } from 'clsx'
@@ -142,7 +142,7 @@ function DeleteEnvModal({ env, onClose }: { env: PythonEnv; onClose: () => void 
 }
 
 // ── Package row ─────────────────────────────────────────────────────────────
-function PackageRow({ pkg, onUninstall }: { pkg: EnvPackage; onUninstall: () => void }) {
+function PackageRow({ pkg, onUninstall, isSystem }: { pkg: EnvPackage; onUninstall: () => void; isSystem?: boolean }) {
   return (
     <tr className="border-t border-[rgba(99,112,156,0.06)] hover:bg-accent/[0.02]">
       <td className="px-4 py-2.5 flex items-center gap-2">
@@ -157,7 +157,7 @@ function PackageRow({ pkg, onUninstall }: { pkg: EnvPackage; onUninstall: () => 
           : '—'}
       </td>
       <td className="px-4 py-2.5 text-right">
-        {pkg.status !== 'installing' && (
+        {!isSystem && pkg.status !== 'installing' && (
           <button
             onClick={onUninstall}
             title="Uninstall"
@@ -302,7 +302,12 @@ export default function EnvironmentsPage() {
                     )}
                   >
                     <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-[700] text-ink-1 truncate">{env.name}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[13px] font-[700] text-ink-1 truncate">{env.name}</span>
+                        {env.is_system && (
+                          <Lock className="w-3 h-3 text-ink-3 flex-shrink-0" title="Read-only system environment" />
+                        )}
+                      </div>
                       <div className="text-[10.5px] text-ink-3 mt-0.5">
                         {env.package_count} pkg{env.package_count !== 1 ? 's' : ''} · {fmtSize(env.total_size_kb)}
                       </div>
@@ -345,59 +350,70 @@ export default function EnvironmentsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={() => syncMutation.mutate(selectedEnv.id)}
-                  disabled={syncMutation.isPending}
-                  title="Sync packages: reconcile DB with actual pip list"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-[700] text-ink-3 border border-[rgba(99,112,156,0.2)] hover:text-ink-1 hover:bg-bg active:scale-[0.97] transition-all disabled:opacity-50"
-                >
-                  <RefreshCw className={clsx('w-3.5 h-3.5', syncMutation.isPending && 'animate-spin')} />
-                  {syncMutation.isPending ? 'Syncing…' : 'Sync'}
-                </button>
-                <button
-                  onClick={() => setDeleteEnv(selectedEnv)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-[700] bg-danger-dim text-danger border border-danger/15 hover:bg-danger/10 active:scale-[0.97] transition-all"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Delete
-                </button>
+                {selectedEnv.is_system ? (
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-[700] text-ink-3 bg-bg border border-[rgba(99,112,156,0.2)]">
+                    <Lock className="w-3.5 h-3.5" />
+                    Read-only
+                  </span>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => syncMutation.mutate(selectedEnv.id)}
+                      disabled={syncMutation.isPending}
+                      title="Sync packages: reconcile DB with actual pip list"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-[700] text-ink-3 border border-[rgba(99,112,156,0.2)] hover:text-ink-1 hover:bg-bg active:scale-[0.97] transition-all disabled:opacity-50"
+                    >
+                      <RefreshCw className={clsx('w-3.5 h-3.5', syncMutation.isPending && 'animate-spin')} />
+                      {syncMutation.isPending ? 'Syncing…' : 'Sync'}
+                    </button>
+                    <button
+                      onClick={() => setDeleteEnv(selectedEnv)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-[700] bg-danger-dim text-danger border border-danger/15 hover:bg-danger/10 active:scale-[0.97] transition-all"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* Install package form */}
-            <div className="bg-white rounded-xl border border-[rgba(99,112,156,0.12)] px-5 py-4 flex-shrink-0">
-              <div className="text-[12px] font-[700] text-ink-2 mb-3">Install Package</div>
-              <div className="flex gap-2">
-                <input
-                  value={pkgName}
-                  onChange={(e) => setPkgName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleInstall()}
-                  placeholder="Package name (e.g. pandas)"
-                  className="flex-1 px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
-                />
-                <input
-                  value={pkgVersion}
-                  onChange={(e) => setPkgVersion(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleInstall()}
-                  placeholder="Version (optional)"
-                  className="w-40 px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
-                />
-                <button
-                  onClick={handleInstall}
-                  disabled={!pkgName.trim() || installMutation.isPending}
-                  className="px-4 py-2 rounded-lg text-[13px] font-[700] bg-ink-1 text-white hover:bg-[#1e2535] active:scale-[0.97] transition-all disabled:opacity-50 flex items-center gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  Install
-                </button>
+            {/* Install package form — hidden for system env */}
+            {!selectedEnv.is_system && (
+              <div className="bg-white rounded-xl border border-[rgba(99,112,156,0.12)] px-5 py-4 flex-shrink-0">
+                <div className="text-[12px] font-[700] text-ink-2 mb-3">Install Package</div>
+                <div className="flex gap-2">
+                  <input
+                    value={pkgName}
+                    onChange={(e) => setPkgName(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleInstall()}
+                    placeholder="Package name (e.g. pandas)"
+                    className="flex-1 px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
+                  />
+                  <input
+                    value={pkgVersion}
+                    onChange={(e) => setPkgVersion(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleInstall()}
+                    placeholder="Version (optional)"
+                    className="w-40 px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
+                  />
+                  <button
+                    onClick={handleInstall}
+                    disabled={!pkgName.trim() || installMutation.isPending}
+                    className="px-4 py-2 rounded-lg text-[13px] font-[700] bg-ink-1 text-white hover:bg-[#1e2535] active:scale-[0.97] transition-all disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Install
+                  </button>
+                </div>
+                {hasInstalling && (
+                  <p className="text-[11px] text-warning mt-2 flex items-center gap-1.5">
+                    <Clock className="w-3 h-3 animate-spin" />
+                    Installation in progress…
+                  </p>
+                )}
               </div>
-              {hasInstalling && (
-                <p className="text-[11px] text-warning mt-2 flex items-center gap-1.5">
-                  <Clock className="w-3 h-3 animate-spin" />
-                  Installation in progress…
-                </p>
-              )}
-            </div>
+            )}
 
             {/* Packages table */}
             <div className="bg-white rounded-xl border border-[rgba(99,112,156,0.12)] overflow-hidden flex-1 flex flex-col min-h-0">
@@ -418,7 +434,9 @@ export default function EnvironmentsPage() {
                   <div className="p-8 text-center">
                     <Package className="w-8 h-8 text-ink-3 mx-auto mb-2" />
                     <p className="text-[13px] text-ink-2 font-[600]">No packages installed</p>
-                    <p className="text-[11px] text-ink-3 mt-1">Use the form above to install packages</p>
+                    {!selectedEnv.is_system && (
+                      <p className="text-[11px] text-ink-3 mt-1">Use the form above to install packages</p>
+                    )}
                   </div>
                 ) : (
                   <table className="w-full" style={{ tableLayout: 'fixed' }}>
@@ -443,6 +461,7 @@ export default function EnvironmentsPage() {
                         <PackageRow
                           key={pkg.id}
                           pkg={pkg}
+                          isSystem={selectedEnv.is_system}
                           onUninstall={() =>
                             uninstallMutation.mutate({ envId: selectedEnv.id, pkgId: pkg.id })
                           }

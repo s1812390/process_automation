@@ -51,6 +51,7 @@ class PythonEnvResponse(BaseModel):
     path: Optional[str] = None
     package_count: int = 0
     total_size_kb: int = 0
+    is_system: bool = False
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

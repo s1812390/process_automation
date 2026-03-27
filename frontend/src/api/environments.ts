@@ -8,7 +8,8 @@ export interface PythonEnv {
   path: string | null
   package_count: number
   total_size_kb: number
-  created_at: string
+  is_system?: boolean
+  created_at: string | null
   updated_at: string | null
 }
 

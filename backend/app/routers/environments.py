@@ -1,10 +1,10 @@
 """
 API router for Python Environment management.
 
-Environments are Python venvs stored at /data/pyenvs/{env_id}/ inside the
-celery-worker container (shared volume python_envs:/data/pyenvs).
-The backend container also mounts this volume so it can create venvs and
-run pip commands.
+Environments are Python venvs stored at /data/pyenvs/{env_id}/.
+Both backend and celery-worker mount the same python_envs volume.
+
+Special env id=0 represents the system (container-global) Python — read-only.
 """
 import asyncio
 import json
@@ -31,6 +31,7 @@ router = APIRouter(prefix="/api/environments", tags=["environments"])
 
 ENVS_BASE_DIR = os.environ.get("PYENVS_BASE_DIR", "/data/pyenvs")
 PIP_INDEX_URL = os.environ.get("PIP_INDEX_URL", "https://mirrors.tencent.com/pypi/simple/")
+_SYSTEM_ENV_ID = 0
 
 
 def _env_path(env_id: int) -> str:
@@ -42,7 +43,6 @@ def _now() -> datetime:
 
 
 async def _run_cmd(cmd: List[str], timeout: int = 300) -> tuple[int, str, str]:
-    """Run a shell command asynchronously, return (returncode, stdout, stderr)."""
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -57,8 +57,7 @@ async def _run_cmd(cmd: List[str], timeout: int = 300) -> tuple[int, str, str]:
     return proc.returncode, stdout.decode(errors="replace"), stderr.decode(errors="replace")
 
 
-async def _get_python_version(env_path: str) -> Optional[str]:
-    python_bin = os.path.join(env_path, "bin", "python")
+async def _get_python_version(python_bin: str) -> Optional[str]:
     rc, out, _ = await _run_cmd([python_bin, "--version"])
     if rc == 0:
         return out.strip().replace("Python ", "")
@@ -66,11 +65,10 @@ async def _get_python_version(env_path: str) -> Optional[str]:
 
 
 async def _get_package_size_kb(env_path: str, package_name: str) -> int:
-    """Estimate installed package size from dist-info directory."""
+    """Estimate installed package size from site-packages directory."""
     site_packages = os.path.join(env_path, "lib")
     total = 0
     try:
-        # Find lib/pythonX.Y/site-packages
         for entry in os.listdir(site_packages):
             sp = os.path.join(site_packages, entry, "site-packages")
             if os.path.isdir(sp):
@@ -93,12 +91,11 @@ async def _get_package_size_kb(env_path: str, package_name: str) -> int:
                                 pass
     except (OSError, FileNotFoundError):
         pass
-    return total // 1024  # bytes → KB
+    return total // 1024
 
 
-async def _pip_list(env_path: str) -> List[dict]:
-    """Return list of installed packages via pip list --format=json."""
-    pip_bin = os.path.join(env_path, "bin", "pip")
+async def _pip_list(pip_bin: str) -> List[dict]:
+    """Return pip list --format=json for the given pip binary."""
     rc, out, _ = await _run_cmd([pip_bin, "list", "--format=json"])
     if rc != 0:
         return []
@@ -108,38 +105,85 @@ async def _pip_list(env_path: str) -> List[dict]:
         return []
 
 
-def _build_env_response(env: PythonEnv) -> dict:
-    pkgs = [p for p in (env.packages or []) if p.status == "installed"]
-    total_kb = sum(p.size_kb or 0 for p in pkgs)
-    return {
-        "id": env.id,
-        "name": env.name,
-        "description": env.description,
-        "python_version": env.python_version,
-        "path": env.path,
-        "package_count": len(pkgs),
-        "total_size_kb": total_kb,
-        "created_at": env.created_at,
-        "updated_at": env.updated_at,
-    }
+def _pkg_to_response(p: EnvPackage) -> EnvPackageResponse:
+    return EnvPackageResponse(
+        id=p.id,
+        env_id=p.env_id,
+        package_name=p.package_name,
+        version=p.version,
+        size_kb=p.size_kb,
+        installed_at=p.installed_at,
+        status=p.status,
+    )
+
+
+def _env_response(env: PythonEnv, pkgs: list, is_system: bool = False) -> PythonEnvResponse:
+    """Build PythonEnvResponse without touching ORM relationship attributes."""
+    installed = [p for p in pkgs if getattr(p, "status", "installed") == "installed"]
+    return PythonEnvResponse(
+        id=env.id,
+        name=env.name,
+        description=env.description,
+        python_version=env.python_version,
+        path=env.path,
+        package_count=len(installed),
+        total_size_kb=sum(getattr(p, "size_kb", 0) or 0 for p in installed),
+        is_system=is_system,
+        created_at=env.created_at,
+        updated_at=env.updated_at,
+    )
+
+
+async def _system_env_response() -> PythonEnvResponse:
+    """Synthetic read-only entry for the container's system Python."""
+    sys_pkgs = await _pip_list("pip")
+    py_ver = await _get_python_version("python")
+    return PythonEnvResponse(
+        id=_SYSTEM_ENV_ID,
+        name="System Python",
+        description="Container global environment — packages here are visible to all scripts that use requirements.txt (read-only)",
+        python_version=py_ver,
+        path=None,
+        package_count=len(sys_pkgs),
+        total_size_kb=0,
+        is_system=True,
+        created_at=None,
+        updated_at=None,
+    )
+
+
+def _system_pkg_list(raw: List[dict]) -> List[EnvPackageResponse]:
+    """Convert pip list output to EnvPackageResponse list (synthetic, read-only)."""
+    return [
+        EnvPackageResponse(
+            id=-(i + 1),   # negative = synthetic, never in DB
+            env_id=_SYSTEM_ENV_ID,
+            package_name=p["name"],
+            version=p.get("version"),
+            size_kb=None,
+            installed_at=None,
+            status="installed",
+        )
+        for i, p in enumerate(raw)
+    ]
 
 
 # ---------------------------------------------------------------------------
-# List environments
+# List environments  (System Python always first)
 # ---------------------------------------------------------------------------
 
 @router.get("", response_model=List[PythonEnvResponse])
 async def list_environments(session: AsyncSession = Depends(get_db)):
+    out: List[PythonEnvResponse] = [await _system_env_response()]
+
     result = await session.execute(select(PythonEnv).order_by(PythonEnv.name))
     envs = result.scalars().all()
-    out = []
     for env in envs:
-        # Eagerly load packages
         pkg_result = await session.execute(
             select(EnvPackage).where(EnvPackage.env_id == env.id)
         )
-        env.packages = pkg_result.scalars().all()
-        out.append(PythonEnvResponse(**_build_env_response(env)))
+        pkgs = pkg_result.scalars().all()
+        out.append(_env_response(env, pkgs))
     return out
 
 
@@ -149,7 +193,6 @@ async def list_environments(session: AsyncSession = Depends(get_db)):
 
 @router.post("", response_model=PythonEnvResponse, status_code=status.HTTP_201_CREATED)
 async def create_environment(data: PythonEnvCreate, session: AsyncSession = Depends(get_db)):
-    # Check uniqueness
     existing = await session.execute(
         select(PythonEnv).where(PythonEnv.name == data.name)
     )
@@ -170,20 +213,29 @@ async def create_environment(data: PythonEnvCreate, session: AsyncSession = Depe
     env.path = env_path
     await session.flush()
 
-    # Create venv
     os.makedirs(ENVS_BASE_DIR, exist_ok=True)
     rc, _, err = await _run_cmd(["python3", "-m", "venv", env_path], timeout=120)
     if rc != 0:
         await session.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create venv: {err}")
 
-    # Detect python version
-    env.python_version = await _get_python_version(env_path)
+    env.python_version = await _get_python_version(os.path.join(env_path, "bin", "python"))
     env.updated_at = _now()
     await session.flush()
 
-    env.packages = []
-    return PythonEnvResponse(**_build_env_response(env))
+    # Return response without loading any relationship (avoids MissingGreenlet)
+    return PythonEnvResponse(
+        id=env.id,
+        name=env.name,
+        description=env.description,
+        python_version=env.python_version,
+        path=env.path,
+        package_count=0,
+        total_size_kb=0,
+        is_system=False,
+        created_at=env.created_at,
+        updated_at=env.updated_at,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -192,22 +244,28 @@ async def create_environment(data: PythonEnvCreate, session: AsyncSession = Depe
 
 @router.get("/{env_id}", response_model=PythonEnvResponse)
 async def get_environment(env_id: int, session: AsyncSession = Depends(get_db)):
+    if env_id == _SYSTEM_ENV_ID:
+        return await _system_env_response()
+
     env = await session.get(PythonEnv, env_id)
     if not env:
         raise HTTPException(status_code=404, detail="Environment not found")
     pkg_result = await session.execute(
         select(EnvPackage).where(EnvPackage.env_id == env_id)
     )
-    env.packages = pkg_result.scalars().all()
-    return PythonEnvResponse(**_build_env_response(env))
+    pkgs = pkg_result.scalars().all()
+    return _env_response(env, pkgs)
 
 
 # ---------------------------------------------------------------------------
-# Delete environment
+# Delete environment  (system env is protected)
 # ---------------------------------------------------------------------------
 
 @router.delete("/{env_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_environment(env_id: int, session: AsyncSession = Depends(get_db)):
+    if env_id == _SYSTEM_ENV_ID:
+        raise HTTPException(status_code=403, detail="System Python environment cannot be deleted")
+
     env = await session.get(PythonEnv, env_id)
     if not env:
         raise HTTPException(status_code=404, detail="Environment not found")
@@ -216,7 +274,6 @@ async def delete_environment(env_id: int, session: AsyncSession = Depends(get_db
     await session.delete(env)
     await session.flush()
 
-    # Remove filesystem venv (best-effort)
     if env_path and os.path.exists(env_path):
         try:
             shutil.rmtree(env_path)
@@ -230,31 +287,23 @@ async def delete_environment(env_id: int, session: AsyncSession = Depends(get_db
 
 @router.get("/{env_id}/packages", response_model=List[EnvPackageResponse])
 async def list_packages(env_id: int, session: AsyncSession = Depends(get_db)):
+    if env_id == _SYSTEM_ENV_ID:
+        raw = await _pip_list("pip")
+        return _system_pkg_list(raw)
+
     env = await session.get(PythonEnv, env_id)
     if not env:
         raise HTTPException(status_code=404, detail="Environment not found")
     result = await session.execute(
-        select(EnvPackage).where(EnvPackage.env_id == env_id).order_by(EnvPackage.package_name)
+        select(EnvPackage)
+        .where(EnvPackage.env_id == env_id)
+        .order_by(EnvPackage.package_name)
     )
-    pkgs = result.scalars().all()
-    return [_pkg_to_response(p) for p in pkgs]
-
-
-def _pkg_to_response(p: EnvPackage) -> EnvPackageResponse:
-    r = EnvPackageResponse(
-        id=p.id,
-        env_id=p.env_id,
-        package_name=p.package_name,
-        version=p.version,
-        size_kb=p.size_kb,
-        installed_at=p.installed_at,
-        status=p.status,
-    )
-    return r
+    return [_pkg_to_response(p) for p in result.scalars().all()]
 
 
 # ---------------------------------------------------------------------------
-# Install package (async background install)
+# Install package
 # ---------------------------------------------------------------------------
 
 @router.post("/{env_id}/packages", response_model=EnvPackageResponse,
@@ -265,6 +314,9 @@ async def install_package(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_db),
 ):
+    if env_id == _SYSTEM_ENV_ID:
+        raise HTTPException(status_code=403, detail="Cannot install packages into system Python")
+
     env = await session.get(PythonEnv, env_id)
     if not env:
         raise HTTPException(status_code=404, detail="Environment not found")
@@ -277,7 +329,6 @@ async def install_package(
     if req.version:
         pkg_spec = f"{req.package_name}=={req.version}"
 
-    # Create DB record immediately with status=installing
     pkg = EnvPackage(
         env_id=env_id,
         package_name=req.package_name,
@@ -288,19 +339,16 @@ async def install_package(
     session.add(pkg)
     await session.flush()
     await session.refresh(pkg)
-    pkg_id = pkg.id
-    response = _pkg_to_response(pkg)
 
-    # Run pip install in background so the request returns quickly
-    background_tasks.add_task(_do_install, env_id, pkg_id, env_path, pkg_spec)
+    response = _pkg_to_response(pkg)
+    background_tasks.add_task(_do_install, env_id, pkg.id, env_path, pkg_spec)
     return response
 
 
 async def _do_install(env_id: int, pkg_id: int, env_path: str, pkg_spec: str):
-    """Background task: run pip install and update DB record."""
     from app.database import AsyncSessionLocal
     pip_bin = os.path.join(env_path, "bin", "pip")
-    rc, _, err = await _run_cmd(
+    rc, _, _ = await _run_cmd(
         [pip_bin, "install", "--index-url", PIP_INDEX_URL, pkg_spec],
         timeout=300,
     )
@@ -311,22 +359,20 @@ async def _do_install(env_id: int, pkg_id: int, env_path: str, pkg_spec: str):
         if rc == 0:
             pkg.status = "installed"
             pkg.installed_at = _now()
-            # Try to get actual installed version via pip show
-            pkg_name = pkg.package_name
-            pip_rc, show_out, _ = await _run_cmd([pip_bin, "show", pkg_name])
+            pip_rc, show_out, _ = await _run_cmd([pip_bin, "show", pkg.package_name])
             if pip_rc == 0:
                 for line in show_out.splitlines():
                     if line.lower().startswith("version:"):
                         pkg.version = line.split(":", 1)[1].strip()
                         break
-            pkg.size_kb = await _get_package_size_kb(env_path, pkg_name)
+            pkg.size_kb = await _get_package_size_kb(env_path, pkg.package_name)
         else:
             pkg.status = "failed"
         await session.commit()
 
 
 # ---------------------------------------------------------------------------
-# Uninstall package
+# Uninstall package  (system packages are protected)
 # ---------------------------------------------------------------------------
 
 @router.delete("/{env_id}/packages/{pkg_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -335,6 +381,9 @@ async def uninstall_package(
     pkg_id: int,
     session: AsyncSession = Depends(get_db),
 ):
+    if env_id == _SYSTEM_ENV_ID:
+        raise HTTPException(status_code=403, detail="Cannot remove system Python packages")
+
     env = await session.get(PythonEnv, env_id)
     if not env:
         raise HTTPException(status_code=404, detail="Environment not found")
@@ -348,17 +397,18 @@ async def uninstall_package(
 
     await session.delete(pkg)
     await session.flush()
-
-    # Uninstall from venv (best-effort)
     await _run_cmd([pip_bin, "uninstall", "-y", pkg.package_name], timeout=120)
 
 
 # ---------------------------------------------------------------------------
-# Sync packages: reconcile DB with actual pip list
+# Sync packages
 # ---------------------------------------------------------------------------
 
 @router.post("/{env_id}/sync", response_model=SyncResult)
 async def sync_packages(env_id: int, session: AsyncSession = Depends(get_db)):
+    if env_id == _SYSTEM_ENV_ID:
+        raise HTTPException(status_code=403, detail="System Python is read-only; sync not applicable")
+
     env = await session.get(PythonEnv, env_id)
     if not env:
         raise HTTPException(status_code=404, detail="Environment not found")
@@ -367,41 +417,32 @@ async def sync_packages(env_id: int, session: AsyncSession = Depends(get_db)):
     if not os.path.exists(env_path):
         raise HTTPException(status_code=400, detail="Venv directory not found on disk")
 
-    # Get actual installed packages from pip
-    actual_pkgs = await _pip_list(env_path)
-    # Build a dict {name_lower: version}
-    actual_map = {p["name"].lower(): p["version"] for p in actual_pkgs}
+    pip_bin = os.path.join(env_path, "bin", "pip")
+    actual_pkgs = await _pip_list(pip_bin)
+    skip = {"pip", "setuptools", "wheel", "pkg-resources", "pkg_resources"}
+    actual_map = {p["name"].lower(): p["version"] for p in actual_pkgs if p["name"].lower() not in skip}
 
-    # Get DB packages
     result = await session.execute(
         select(EnvPackage).where(EnvPackage.env_id == env_id)
     )
     db_pkgs = result.scalars().all()
     db_map = {p.package_name.lower(): p for p in db_pkgs}
 
-    # Skip built-in / pip / setuptools from tracking
-    skip = {"pip", "setuptools", "wheel", "pkg-resources", "pkg_resources"}
-
     added = updated = removed = 0
 
-    # Packages in actual but not in DB → add
     for name_lower, version in actual_map.items():
-        if name_lower in skip:
-            continue
         if name_lower not in db_map:
             size_kb = await _get_package_size_kb(env_path, name_lower)
-            new_pkg = EnvPackage(
+            session.add(EnvPackage(
                 env_id=env_id,
                 package_name=name_lower,
                 version=version,
                 size_kb=size_kb,
                 installed_at=_now(),
                 status="installed",
-            )
-            session.add(new_pkg)
+            ))
             added += 1
         else:
-            # Update version if changed
             existing = db_map[name_lower]
             if existing.version != version or existing.status != "installed":
                 existing.version = version
@@ -410,7 +451,6 @@ async def sync_packages(env_id: int, session: AsyncSession = Depends(get_db)):
                     existing.size_kb = await _get_package_size_kb(env_path, name_lower)
                 updated += 1
 
-    # Packages in DB but not in actual → remove
     for name_lower, db_pkg in db_map.items():
         if name_lower not in actual_map:
             await session.delete(db_pkg)
@@ -418,7 +458,6 @@ async def sync_packages(env_id: int, session: AsyncSession = Depends(get_db)):
 
     await session.flush()
 
-    # Reload
     result2 = await session.execute(
         select(EnvPackage).where(EnvPackage.env_id == env_id).order_by(EnvPackage.package_name)
     )
