@@ -208,8 +208,13 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
                 f.write(script.requirements_content)
                 tmp_req = f.name
 
+            pip_index_url = os.environ.get("PIP_INDEX_URL", "https://pypi.org/simple/")
+            pip_cmd = ["pip", "install", "--index-url", pip_index_url, "-r", tmp_req]
+            pip_trusted_host = os.environ.get("PIP_TRUSTED_HOST")
+            if pip_trusted_host:
+                pip_cmd += ["--trusted-host", pip_trusted_host]
             pip_result = subprocess.run(
-                ["pip", "install", "--index-url", "https://pypi.org/simple/", "-r", tmp_req],
+                pip_cmd,
                 capture_output=True,
                 text=True,
                 timeout=300,
