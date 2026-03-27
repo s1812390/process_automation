@@ -305,7 +305,7 @@ export default function EnvironmentsPage() {
                       <div className="flex items-center gap-1.5">
                         <span className="text-[13px] font-[700] text-ink-1 truncate">{env.name}</span>
                         {env.is_system && (
-                          <Lock className="w-3 h-3 text-ink-3 flex-shrink-0" title="Read-only system environment" />
+                          <Lock className="w-3 h-3 text-ink-3 flex-shrink-0" />
                         )}
                       </div>
                       <div className="text-[10.5px] text-ink-3 mt-0.5">
