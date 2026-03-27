@@ -28,7 +28,9 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - python_envs:/data/pyenvs
     command: >
-      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      sh -c "printf 'precedence ::ffff:0:0/96  100\n' >> /etc/gai.conf &&
+             alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
     logging: *default-logging
 
   celery-worker:
@@ -46,7 +48,9 @@ services:
       - 8.8.4.4
     volumes:
       - python_envs:/data/pyenvs
-    command: celery -A app.celery_app worker --queues=high,normal,default --concurrency=2 --loglevel=info
+    command: >
+      sh -c "printf 'precedence ::ffff:0:0/96  100\n' >> /etc/gai.conf &&
+             celery -A app.celery_app worker --queues=high,normal,default --concurrency=2 --loglevel=info"
     logging: *default-logging
 
   celery-beat:

@@ -452,10 +452,19 @@ def _pip_install_via_docker_sync(pip_bin: str, pkg_spec: str) -> tuple[int, str,
     logger.info("Docker pip: container=%s image=%.12s volume=%s proxy_vars=%s",
                 container_id, image_id, volume_name, list(env_vars.keys()))
 
+    # Prefer IPv4 in the spawned container: broken IPv6 causes ReadTimeoutError in pip.
+    import shlex
+    cmd = (
+        "printf 'precedence ::ffff:0:0/96  100\\n' >> /etc/gai.conf && "
+        f"{shlex.quote(pip_bin)} install "
+        f"--index-url {shlex.quote(PIP_INDEX_URL)} "
+        f"{shlex.quote(pkg_spec)}"
+    )
+
     try:
         output = client.containers.run(
             image=image_id,
-            command=[pip_bin, "install", "--index-url", PIP_INDEX_URL, pkg_spec],
+            command=["sh", "-c", cmd],
             volumes={volume_name: {"bind": "/data/pyenvs", "mode": "rw"}},
             network_mode="host",
             environment=env_vars,
