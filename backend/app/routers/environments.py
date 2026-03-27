@@ -441,12 +441,24 @@ def _pip_install_via_docker_sync(pip_bin: str, pkg_spec: str) -> tuple[int, str,
     if not volume_name:
         raise RuntimeError("python_envs volume mount not found in current container")
 
+    # Pass proxy env vars so pip inside the container can reach external servers.
+    # These come from the backend container's own environment (set via .env / docker-compose).
+    env_vars: dict = {}
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "no_proxy", "NO_PROXY"):
+        val = os.environ.get(key)
+        if val:
+            env_vars[key] = val
+
+    logger.info("Docker pip: container=%s image=%.12s volume=%s proxy_vars=%s",
+                container_id, image_id, volume_name, list(env_vars.keys()))
+
     try:
         output = client.containers.run(
             image=image_id,
             command=[pip_bin, "install", "--index-url", PIP_INDEX_URL, pkg_spec],
             volumes={volume_name: {"bind": "/data/pyenvs", "mode": "rw"}},
             network_mode="host",
+            environment=env_vars,
             remove=True,
             stdout=True,
             stderr=True,
