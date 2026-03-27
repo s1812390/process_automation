@@ -19,9 +19,11 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple/
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - python_envs:/data/pyenvs
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     logging: *default-logging
@@ -35,6 +37,9 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple/
+    volumes:
+      - python_envs:/data/pyenvs
     command: celery -A app.celery_app worker --queues=high,normal,default --concurrency=2 --loglevel=info
     logging: *default-logging
 
@@ -63,3 +68,4 @@ services:
 
 volumes:
   celery_beat_schedule:
+  python_envs:

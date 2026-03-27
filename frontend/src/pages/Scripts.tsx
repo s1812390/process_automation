@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Plus, Play, Edit2, Trash2, ToggleLeft, ToggleRight, AlertCircle, Tag, AlertTriangle, Search, Calculator } from 'lucide-react'
 import { scriptsApi, Script, ScriptCreate } from '../api/scripts'
+import { environmentsApi } from '../api/environments'
 import { StatusBadge } from '../components/StatusBadge'
 import { ScriptEditor } from '../components/ScriptEditor'
 import { CronInput } from '../components/CronInput'
@@ -77,6 +78,12 @@ function CreateScriptModal({ onClose, onCreated }: { onClose: () => void; onCrea
     max_retries: 0,
     is_active: true,
     tag: '',
+    python_env_id: null,
+  })
+
+  const { data: environments = [] } = useQuery({
+    queryKey: ['environments'],
+    queryFn: environmentsApi.list,
   })
 
   const createMutation = useMutation({
@@ -93,7 +100,7 @@ function CreateScriptModal({ onClose, onCreated }: { onClose: () => void; onCrea
     const data = {
       ...form,
       cron_expression: form.cron_expression || undefined,
-      requirements_content: form.requirements_content || undefined,
+      requirements_content: form.python_env_id ? undefined : (form.requirements_content || undefined),
       description: form.description || undefined,
       tag: form.tag?.trim() || undefined,
     }
@@ -138,6 +145,22 @@ function CreateScriptModal({ onClose, onCreated }: { onClose: () => void; onCrea
                 placeholder="e.g. ETL, Reports, Alerts"
                 className="w-full px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
               />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-[12px] font-[700] text-ink-2 mb-1.5">Python Environment</label>
+              <select
+                value={form.python_env_id ?? ''}
+                onChange={(e) => setForm({ ...form, python_env_id: e.target.value ? Number(e.target.value) : null })}
+                className="w-full px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
+              >
+                <option value="">System Python (use requirements.txt)</option>
+                {environments.map((env) => (
+                  <option key={env.id} value={env.id}>
+                    {env.name} {env.python_version ? `(Python ${env.python_version})` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[10px] text-ink-3 mt-1">Select a pre-configured venv or leave empty to use requirements.txt</p>
             </div>
           </div>
 

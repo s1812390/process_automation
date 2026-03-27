@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Play, Trash2, Plus, Mail, MessageCircle, X, ChevronLeft, ChevronRight, Copy, RefreshCw, Check, AlertTriangle, Send } from 'lucide-react'
 import { scriptsApi, alertsApi, AlertConfigCreate } from '../api/scripts'
 import { runsApi } from '../api/runs'
+import { environmentsApi } from '../api/environments'
 import { ScriptEditor } from '../components/ScriptEditor'
 import { CronInput } from '../components/CronInput'
 import { StatusBadge } from '../components/StatusBadge'
@@ -12,7 +13,7 @@ import { formatDistanceToNow, subDays, format } from 'date-fns'
 import { parseUTC } from '../utils/dateUtils'
 import { clsx } from 'clsx'
 
-type Tab = 'editor' | 'requirements' | 'settings' | 'parameters' | 'alerts' | 'history'
+type Tab = 'editor' | 'environment' | 'settings' | 'parameters' | 'alerts' | 'history'
 
 interface ParamDef {
   name: string
@@ -64,6 +65,7 @@ export default function ScriptDetail() {
 
   const [editorContent, setEditorContent] = useState<string>('')
   const [reqContent, setReqContent] = useState<string>('')
+  const [selectedEnvId, setSelectedEnvId] = useState<number | null | undefined>(undefined)
   const [settings, setSettings] = useState<{
     cron_expression: string
     timeout_seconds: string
@@ -82,10 +84,17 @@ export default function ScriptDetail() {
   const [showRunModal, setShowRunModal] = useState(false)
   const [runParamValues, setRunParamValues] = useState<Record<string, string>>({})
 
+  const { data: environments = [] } = useQuery({
+    queryKey: ['environments'],
+    queryFn: environmentsApi.list,
+    enabled: activeTab === 'environment',
+  })
+
   useEffect(() => {
     if (script) {
       if (!editorContent) setEditorContent(script.script_content)
       if (!reqContent) setReqContent(script.requirements_content || '')
+      if (selectedEnvId === undefined) setSelectedEnvId(script.python_env_id ?? null)
       if (!settings) {
         setSettings({
           cron_expression: script.cron_expression || '',
@@ -182,7 +191,7 @@ export default function ScriptDetail() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: 'editor', label: 'Editor' },
-    { key: 'requirements', label: 'Requirements' },
+    { key: 'environment', label: 'Environment' },
     { key: 'settings', label: 'Settings' },
     { key: 'parameters', label: 'Parameters' },
     { key: 'alerts', label: 'Alerts' },
@@ -388,20 +397,72 @@ export default function ScriptDetail() {
         </div>
       )}
 
-      {/* Requirements */}
-      {activeTab === 'requirements' && (
-        <div className="space-y-4">
-          <p className="text-[12px] text-ink-3">Enter pip packages, one per line or in standard requirements.txt format.</p>
-          <ScriptEditor
-            value={reqContent || script.requirements_content || '# requirements.txt\n# e.g. requests==2.31.0\n'}
-            onChange={setReqContent} language="plaintext" height="300px"
-          />
-          <div className="flex justify-end">
-            <button onClick={() => { setSavingContext('Requirements saved'); updateMutation.mutate({ requirements_content: reqContent }) }} disabled={updateMutation.isPending}
-              className="px-5 py-2 rounded-lg text-[13px] font-[700] bg-ink-1 text-white hover:bg-[#1e2535] hover:-translate-y-px active:scale-[0.97] transition-all disabled:opacity-50">
-              {updateMutation.isPending ? 'Saving...' : 'Save'}
-            </button>
+      {/* Environment */}
+      {activeTab === 'environment' && (
+        <div className="space-y-5">
+          {/* Environment selector */}
+          <div className="bg-white rounded-lg border border-[rgba(99,112,156,0.12)] p-6 space-y-4">
+            <div>
+              <h3 className="text-[13px] font-[700] text-ink-1 mb-0.5">Python Environment</h3>
+              <p className="text-[11px] text-ink-3">
+                Select a pre-configured venv. When selected, the script runs with that venv's Python interpreter and the requirements.txt section is ignored.
+              </p>
+            </div>
+            <div>
+              <label className="block text-[12px] font-[700] text-ink-2 mb-1.5">Environment</label>
+              <select
+                value={selectedEnvId ?? ''}
+                onChange={(e) => setSelectedEnvId(e.target.value ? Number(e.target.value) : null)}
+                className="w-full px-3 py-2 rounded-lg border border-[rgba(99,112,156,0.2)] bg-white text-[13px] text-ink-1 focus:outline-none focus:border-violet focus:ring-1 focus:ring-violet/20"
+              >
+                <option value="">System Python (use requirements.txt below)</option>
+                {environments.map((env) => (
+                  <option key={env.id} value={env.id}>
+                    {env.name} {env.python_version ? `· Python ${env.python_version}` : ''} · {env.package_count} packages
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end">
+              <button
+                onClick={() => {
+                  setSavingContext('Environment saved')
+                  updateMutation.mutate({ python_env_id: selectedEnvId ?? null })
+                }}
+                disabled={updateMutation.isPending}
+                className="px-5 py-2 rounded-lg text-[13px] font-[700] bg-ink-1 text-white hover:bg-[#1e2535] hover:-translate-y-px active:scale-[0.97] transition-all disabled:opacity-50"
+              >
+                {updateMutation.isPending ? 'Saving...' : 'Save Environment'}
+              </button>
+            </div>
           </div>
+
+          {/* Requirements fallback (only when no env is selected) */}
+          {!selectedEnvId && (
+            <div className="bg-white rounded-lg border border-[rgba(99,112,156,0.12)] p-6 space-y-4">
+              <div>
+                <h3 className="text-[13px] font-[700] text-ink-1 mb-0.5">requirements.txt</h3>
+                <p className="text-[11px] text-ink-3">
+                  Used only when no environment is selected. Packages are installed into the system Python before each run.
+                </p>
+              </div>
+              <ScriptEditor
+                value={reqContent || script.requirements_content || '# requirements.txt\n# e.g. requests==2.31.0\n'}
+                onChange={setReqContent}
+                language="plaintext"
+                height="220px"
+              />
+              <div className="flex justify-end">
+                <button
+                  onClick={() => { setSavingContext('Requirements saved'); updateMutation.mutate({ requirements_content: reqContent }) }}
+                  disabled={updateMutation.isPending}
+                  className="px-5 py-2 rounded-lg text-[13px] font-[700] bg-ink-1 text-white hover:bg-[#1e2535] hover:-translate-y-px active:scale-[0.97] transition-all disabled:opacity-50"
+                >
+                  {updateMutation.isPending ? 'Saving...' : 'Save Requirements'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

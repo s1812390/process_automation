@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -22,8 +22,10 @@ class Script(Base):
     webhook_token = Column(String(64), unique=True)
     parameters_schema = Column(Text)
     tag = Column(String(100))
+    python_env_id = Column(Integer, ForeignKey("SH_PYTHON_ENVS.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None), onupdate=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
 
     runs = relationship("ScriptRun", back_populates="script", cascade="all, delete-orphan")
     alert_configs = relationship("AlertConfig", back_populates="script", cascade="all, delete-orphan")
+    python_env = relationship("PythonEnv", back_populates="scripts", foreign_keys=[python_env_id])

@@ -200,16 +200,27 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
         effective_cpu = script.cpu_cores or (int(get_setting("default_cpu_cores")) if get_setting("default_cpu_cores") else None)
         effective_ram = script.ram_limit_mb or (int(get_setting("default_ram_limit_mb")) if get_setting("default_ram_limit_mb") else None)
 
-        # 3. Install requirements if any
-        if script.requirements_content and script.requirements_content.strip():
+        # 3. Resolve python interpreter: use venv if python_env_id is set
+        python_bin = "python"
+        if script.python_env_id:
+            from app.models.environment import PythonEnv
+            env_obj = session.get(PythonEnv, script.python_env_id)
+            if env_obj and env_obj.path:
+                venv_python = os.path.join(env_obj.path, "bin", "python")
+                if os.path.exists(venv_python):
+                    python_bin = venv_python
+
+        # 3b. Install requirements if any (only when NOT using a venv)
+        if python_bin == "python" and script.requirements_content and script.requirements_content.strip():
             with tempfile.NamedTemporaryFile(
                 mode="w", suffix=".txt", prefix=f"req_{run_id}_", delete=False
             ) as f:
                 f.write(script.requirements_content)
                 tmp_req = f.name
 
+            pip_index = os.environ.get("PIP_INDEX_URL", "https://mirrors.tencent.com/pypi/simple/")
             pip_result = subprocess.run(
-                ["pip", "install", "--index-url", "https://pypi.org/simple/", "-r", tmp_req],
+                ["pip", "install", "--index-url", pip_index, "-r", tmp_req],
                 capture_output=True,
                 text=True,
                 timeout=300,
@@ -282,7 +293,7 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 
         # 7. Start subprocess
         proc = subprocess.Popen(
-            ["python", tmp_script],
+            [python_bin, tmp_script],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

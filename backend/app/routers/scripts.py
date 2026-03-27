@@ -55,6 +55,7 @@ async def _enrich_script(script: Script, session: AsyncSession) -> dict:
         "webhook_token": script.webhook_token,
         "parameters_schema": script.parameters_schema,
         "tag": script.tag,
+        "python_env_id": script.python_env_id,
         "created_at": script.created_at,
         "updated_at": script.updated_at,
         "last_run_status": last_run.status if last_run else None,

@@ -8,6 +8,7 @@ import RunDetail from './pages/RunDetail'
 import RunsPage from './pages/Runs'
 import SettingsPage from './pages/Settings'
 import VariablesPage from './pages/Variables'
+import EnvironmentsPage from './pages/Environments'
 import { TimezoneProvider } from './context/TimezoneContext'
 import { ToastProvider } from './components/Toast'
 
@@ -45,6 +46,7 @@ export default function App() {
               <Route path="/scripts/:id" element={<ScriptDetail />} />
               <Route path="/runs/:id" element={<RunDetail />} />
               <Route path="/variables" element={<VariablesPage />} />
+              <Route path="/environments" element={<EnvironmentsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </main>

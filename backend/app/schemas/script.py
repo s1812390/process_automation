@@ -25,6 +25,7 @@ class ScriptBase(BaseModel):
     is_active: bool = True
     parameters_schema: Optional[str] = None
     tag: Optional[str] = None
+    python_env_id: Optional[int] = None
 
 
 class ScriptCreate(ScriptBase):
@@ -45,6 +46,7 @@ class ScriptUpdate(BaseModel):
     is_active: Optional[bool] = None
     parameters_schema: Optional[str] = None
     tag: Optional[str] = None
+    python_env_id: Optional[int] = None
 
 
 class ScriptResponse(ScriptBase):
@@ -72,6 +74,7 @@ class ScriptListResponse(BaseModel):
     is_active: bool
     created_at: datetime
     tag: Optional[str] = None
+    python_env_id: Optional[int] = None
     last_run_status: Optional[str] = None
     last_run_at: Optional[datetime] = None
 
