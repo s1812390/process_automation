@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/environments", tags=["environments"])
 logger = logging.getLogger(__name__)
 
 ENVS_BASE_DIR = os.environ.get("PYENVS_BASE_DIR", "/data/pyenvs")
-PIP_INDEX_URL = os.environ.get("PIP_INDEX_URL", "https://mirrors.tencent.com/pypi/simple/")
+PIP_INDEX_URL = os.environ.get("PIP_INDEX_URL", "https://pypi.org/simple/")
 _SYSTEM_ENV_ID = 0
 
 
