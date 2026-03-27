@@ -21,6 +21,9 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple/
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     ports:
       - "8000:8000"
     volumes:
@@ -41,6 +44,9 @@ services:
     environment:
       - REDIS_URL=redis://redis:6379/0
       - PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple/
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     volumes:
       - python_envs:/data/pyenvs
     command: celery -A app.celery_app worker --queues=high,normal,default --concurrency=2 --loglevel=info
