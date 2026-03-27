@@ -8,6 +8,7 @@ Special env id=0 represents the system (container-global) Python — read-only.
 """
 import asyncio
 import json
+import logging
 import os
 import shutil
 from datetime import datetime, timezone
@@ -28,6 +29,7 @@ from app.schemas.environment import (
 )
 
 router = APIRouter(prefix="/api/environments", tags=["environments"])
+logger = logging.getLogger(__name__)
 
 ENVS_BASE_DIR = os.environ.get("PYENVS_BASE_DIR", "/data/pyenvs")
 PIP_INDEX_URL = os.environ.get("PIP_INDEX_URL", "https://mirrors.tencent.com/pypi/simple/")
@@ -348,27 +350,46 @@ async def install_package(
 async def _do_install(env_id: int, pkg_id: int, env_path: str, pkg_spec: str):
     from app.database import AsyncSessionLocal
     pip_bin = os.path.join(env_path, "bin", "pip")
-    rc, _, _ = await _run_cmd(
-        [pip_bin, "install", "--index-url", PIP_INDEX_URL, pkg_spec],
-        timeout=300,
-    )
-    async with AsyncSessionLocal() as session:
-        pkg = await session.get(EnvPackage, pkg_id)
-        if pkg is None:
-            return
-        if rc == 0:
-            pkg.status = "installed"
-            pkg.installed_at = _now()
-            pip_rc, show_out, _ = await _run_cmd([pip_bin, "show", pkg.package_name])
-            if pip_rc == 0:
-                for line in show_out.splitlines():
-                    if line.lower().startswith("version:"):
-                        pkg.version = line.split(":", 1)[1].strip()
-                        break
-            pkg.size_kb = await _get_package_size_kb(env_path, pkg.package_name)
-        else:
-            pkg.status = "failed"
-        await session.commit()
+    logger.info("pip install starting: env_id=%s pkg_id=%s spec=%s pip=%s", env_id, pkg_id, pkg_spec, pip_bin)
+    try:
+        if not os.path.exists(pip_bin):
+            raise FileNotFoundError(f"pip not found at {pip_bin}")
+        rc, stdout, stderr = await _run_cmd(
+            [pip_bin, "install", "--index-url", PIP_INDEX_URL, pkg_spec],
+            timeout=300,
+        )
+        logger.info("pip install finished: env_id=%s pkg_id=%s rc=%s", env_id, pkg_id, rc)
+        if rc != 0:
+            logger.error("pip install failed: env_id=%s pkg_id=%s\nstdout=%s\nstderr=%s", env_id, pkg_id, stdout, stderr)
+        async with AsyncSessionLocal() as session:
+            pkg = await session.get(EnvPackage, pkg_id)
+            if pkg is None:
+                logger.warning("_do_install: pkg_id=%s not found in DB after install", pkg_id)
+                return
+            if rc == 0:
+                pkg.status = "installed"
+                pkg.installed_at = _now()
+                pip_rc, show_out, _ = await _run_cmd([pip_bin, "show", pkg.package_name])
+                if pip_rc == 0:
+                    for line in show_out.splitlines():
+                        if line.lower().startswith("version:"):
+                            pkg.version = line.split(":", 1)[1].strip()
+                            break
+                pkg.size_kb = await _get_package_size_kb(env_path, pkg.package_name)
+            else:
+                pkg.status = "failed"
+            await session.commit()
+    except Exception as exc:
+        logger.exception("_do_install crashed: env_id=%s pkg_id=%s spec=%s error=%s", env_id, pkg_id, pkg_spec, exc)
+        try:
+            from app.database import AsyncSessionLocal as _ASL
+            async with _ASL() as session:
+                pkg = await session.get(EnvPackage, pkg_id)
+                if pkg:
+                    pkg.status = "failed"
+                    await session.commit()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
