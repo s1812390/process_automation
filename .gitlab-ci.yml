@@ -65,5 +65,6 @@ deploy:
         docker-compose stop celery-beat &&
         docker-compose rm -f celery-beat &&
         docker volume rm ${CI_PROJECT_NAME}_celery_beat_schedule || true &&
+        docker network rm ${CI_PROJECT_NAME}_default || true &&
         docker-compose up -d --remove-orphans
       "
