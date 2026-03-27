@@ -220,7 +220,8 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 
             pip_index = os.environ.get("PIP_INDEX_URL", "https://mirrors.tencent.com/pypi/simple/")
             pip_result = subprocess.run(
-                ["pip", "install", "--index-url", pip_index, "-r", tmp_req],
+                ["pip", "install", "--index-url", pip_index,
+                 "--timeout", "30", "--retries", "3", "-r", tmp_req],
                 capture_output=True,
                 text=True,
                 timeout=300,

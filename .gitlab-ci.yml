@@ -62,7 +62,9 @@ deploy:
       ssh finuser@$SSH_SERVER_HOST "
         cd $COMPOSE_PATH &&
         docker-compose pull &&
-        docker-compose down --remove-orphans &&
-        docker volume rm ${CI_PROJECT_NAME}_celery_beat_schedule || true &&
-        docker-compose up -d
+        docker-compose stop &&
+        docker-compose rm -f &&
+        docker volume rm ${CI_PROJECT_NAME}_celery_beat_schedule 2>/dev/null || true &&
+        docker network rm ${CI_PROJECT_NAME}_default 2>/dev/null || true &&
+        docker-compose up -d --remove-orphans
       "
