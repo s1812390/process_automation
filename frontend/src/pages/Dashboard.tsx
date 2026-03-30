@@ -464,7 +464,7 @@ export default function Dashboard() {
   const { data: containerStats, isLoading: containerStatsLoading } = useQuery({
     queryKey: ['system', 'container-stats'],
     queryFn: systemApi.getContainerStats,
-    refetchInterval: 10000,
+    refetchInterval: 15000,
     retry: 1,
   })
 
