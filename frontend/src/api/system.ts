@@ -49,6 +49,17 @@ export interface SystemStats {
   runs: RunsStats
 }
 
+export interface FastStats {
+  host: HostMetrics
+  disk: { tmp: DiskPartition | null; data: DiskPartition | null }
+  log_files: LogFileInfo[] | null
+  runs: RunsStats
+}
+
+export interface ContainerStatsResponse {
+  containers: ContainerMetrics[] | null
+}
+
 export interface ContainerLogsResponse {
   container: string
   lines: string[]
@@ -56,6 +67,8 @@ export interface ContainerLogsResponse {
 
 export const systemApi = {
   getStats: () => client.get<SystemStats>('/system/stats').then(r => r.data),
+  getFastStats: () => client.get<FastStats>('/system/fast-stats').then(r => r.data),
+  getContainerStats: () => client.get<ContainerStatsResponse>('/system/container-stats').then(r => r.data),
   getContainerLogs: (name: string, tail = 200) =>
     client.get<ContainerLogsResponse>(`/system/container-logs/${encodeURIComponent(name)}`, { params: { tail } }).then(r => r.data),
 }

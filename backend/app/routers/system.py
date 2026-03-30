@@ -1,3 +1,4 @@
+import asyncio
 import os
 import shutil
 from datetime import datetime, timezone, timedelta
@@ -274,3 +275,33 @@ async def get_system_stats():
         "log_files": log_files,
         "runs": runs,
     }
+
+
+@router.get("/fast-stats")
+async def get_fast_stats():
+    """Host metrics, disk, log file sizes, and run stats — all fast (~0.5s), run concurrently."""
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "process_automation")
+
+    async def _runs():
+        try:
+            redis_client = _get_redis()
+            return await asyncio.to_thread(_get_runs_stats, redis_client)
+        except Exception as e:
+            logger.warning("Failed to get runs stats", error=str(e))
+            return {"active": 0, "potential_orphans": []}
+
+    host, disk, log_files, runs = await asyncio.gather(
+        asyncio.to_thread(_get_host_metrics),
+        asyncio.to_thread(_get_disk_metrics),
+        asyncio.to_thread(_get_log_file_sizes, project_name),
+        _runs(),
+    )
+    return {"host": host, "disk": disk, "log_files": log_files, "runs": runs}
+
+
+@router.get("/container-stats")
+async def get_container_stats():
+    """Docker container CPU/RAM stats — slow (~1s per container), isolated endpoint."""
+    project_name = os.environ.get("COMPOSE_PROJECT_NAME", "process_automation")
+    containers = await asyncio.to_thread(_get_container_metrics, project_name)
+    return {"containers": containers}
