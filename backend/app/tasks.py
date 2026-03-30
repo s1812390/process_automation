@@ -247,6 +247,11 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 
         child_env = os.environ.copy()
 
+        # Disable Python's block-buffering so stdout/stderr lines arrive immediately
+        # when the subprocess writes to a PIPE (non-TTY). Without this, output is
+        # buffered in 8 KB blocks and only flushed when the process exits.
+        child_env["PYTHONUNBUFFERED"] = "1"
+
         # Inject configured timezone so datetime.now() in scripts returns local time
         tz_setting = session.get(AppSetting, "timezone")
         if tz_setting and tz_setting.value:
@@ -294,7 +299,7 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 
         # 7. Start subprocess
         proc = subprocess.Popen(
-            [python_bin, tmp_script],
+            [python_bin, "-u", tmp_script],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
