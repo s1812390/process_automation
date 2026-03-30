@@ -19,10 +19,11 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple/
+      - PIP_INDEX_URL=https://serik.tashanov:${GITLAB_PYPI_TOKEN}@gitlab.tele2.kz/api/v4/groups/financial_dep/-/packages/pypi/simple/
+      - PIP_TRUSTED_HOST=gitlab.tele2.kz
     dns:
-      - 8.8.8.8
-      - 8.8.4.4
+      - 10.200.200.70
+      - 192.168.101.70
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
@@ -42,10 +43,11 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - PIP_INDEX_URL=https://mirrors.tencent.com/pypi/simple/
+      - PIP_INDEX_URL=https://serik.tashanov:${GITLAB_PYPI_TOKEN}@gitlab.tele2.kz/api/v4/groups/financial_dep/-/packages/pypi/simple/
+      - PIP_TRUSTED_HOST=gitlab.tele2.kz
     dns:
-      - 8.8.8.8
-      - 8.8.4.4
+      - 10.200.200.70
+      - 192.168.101.70
     volumes:
       - python_envs:/data/pyenvs
     command: >
