@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Copy, Download } from 'lucide-react'
 import { clsx } from 'clsx'
+import { runsApi } from '../api/runs'
 
 interface LogLine {
   id: number
@@ -33,35 +34,26 @@ export function LogViewer({ runId, isLive = false, initialLogs = [], logsLoading
   useEffect(() => {
     if (!isLive) return
 
-    const es = new EventSource(`/api/runs/${runId}/logs/stream`)
-    setConnected(true)
+    let cancelled = false
 
-    es.onmessage = (e) => {
+    const poll = async () => {
       try {
-        const data = JSON.parse(e.data)
-        if (data.type === 'done') {
-          es.close()
-          setConnected(false)
-          return
+        const data = await runsApi.getLogs(runId)
+        if (!cancelled) {
+          setLogs(data as LogLine[])
+          setConnected(true)
         }
-        if (data.type === 'error' || data.type === 'timeout') {
-          es.close()
-          setConnected(false)
-          return
-        }
-        setLogs((prev) => [...prev, data])
       } catch {
-        // ignore parse errors
+        if (!cancelled) setConnected(false)
       }
     }
 
-    es.onerror = () => {
-      es.close()
-      setConnected(false)
-    }
+    poll()
+    const interval = setInterval(poll, 2000)
 
     return () => {
-      es.close()
+      cancelled = true
+      clearInterval(interval)
       setConnected(false)
     }
   }, [runId, isLive])
