@@ -193,7 +193,9 @@ async def _pip_install(pip_bin, pkg_spec):
 | POST | `/api/alerts/{id}/test` | Send test alert |
 | DELETE | `/api/alerts/{id}` | Delete alert |
 | POST | `/api/webhooks/{token}` | Webhook trigger |
-| GET | `/api/system/stats` | Host/container stats |
+| GET | `/api/system/stats` | Host/container stats (all-in-one, legacy) |
+| GET | `/api/system/fast-stats` | Host, disk, log files, orphan runs (~0.5s, concurrent) |
+| GET | `/api/system/container-stats` | Docker container CPU/RAM (~5s, isolated) |
 | GET | `/api/system/container-logs/{name}` | Container log lines |
 | **GET/POST** | **`/api/environments`** | **List / create Python envs** |
 | **GET/DELETE** | **`/api/environments/{id}`** | **Get / delete env** |
@@ -299,6 +301,12 @@ docker-compose up -d --remove-orphans                              # fresh netwo
 - **SSE stream**: timeout 8 часов; свежая `AsyncSessionLocal()` на каждую итерацию (избегает identity map кэша и stale Oracle snapshot); keepalive комментарий `": keepalive\n\n"` каждую секунду
 - **date_from/date_to**: нормализуются в UTC naive через `_utc_naive()`
 
+## system.py — важные детали
+
+- **`/fast-stats`**: запускает `_get_host_metrics`, `_get_disk_metrics`, `_get_log_file_sizes`, `_get_runs_stats` параллельно через `asyncio.gather` + `asyncio.to_thread` → суммарно ~0.5s (bottleneck — `cpu_percent(interval=0.5)`)
+- **`/container-stats`**: вызывает `_get_container_metrics` через `asyncio.to_thread` — `container.stats(stream=False)` блокирует ~1s на контейнер, итого ~5s на 5 контейнеров
+- Старый `/stats` сохранён для обратной совместимости, но не используется дашбордом
+
 ## LogViewer (frontend) — важные детали
 
 - **Live режим**: polling `/api/runs/{id}/logs` каждые 2 секунды пока `isLive=true` (SSE не доходил до браузера через uvicorn/nginx стек)
@@ -311,7 +319,10 @@ docker-compose up -d --remove-orphans                              # fresh netwo
 - **Scripts → Create modal**: dropdown выбора env при создании
 - **Scripts page**: поиск, Schedule column с next run
 - **Runs page**: фильтры + RAM/CPU columns
-- **Dashboard**: System Health (CPU/RAM, контейнеры, диск, логи)
+- **Dashboard**: прогрессивная загрузка — каждая секция показывает скелетон и появляется по мере готовности:
+  - StatCards, Host Resources, Disk, Active Runs — из `/fast-stats` (~0.5s, refetch 10s)
+  - Containers — из `/container-stats` (~5s, refetch 15s)
+  - Container Logs modal — polling каждые 5s пока открыт
 
 ## Production .env (на сервере)
 
