@@ -287,15 +287,22 @@ docker-compose up -d --remove-orphans                              # fresh netwo
 ## tasks.py — важные детали
 
 - **SIGTERM handler**: `os.killpg(os.getpgid(proc.pid), SIGTERM)` убивает process group
-- **Distributed lock**: `script_run_lock:{script_id}:{minute_bucket}` (TTL=300s)
+- **Distributed lock**: `script_run_lock:{script_id}` (TTL=300s)
 - **fork safety**: `engine.dispose()` на `worker_process_init`
 - **Temp files**: `tmp_script`, `tmp_req`, `tmp_params` — удаляются в `finally`
+- **Real-time logs**: subprocess запускается с `PYTHONUNBUFFERED=1` и флагом `-u`; логи флашатся в БД каждые 0.5с через polling loop (не батчем в конце)
+- **ORA-01400 gotcha**: пустые строки `''` в логах заменяются на `" "` в `_flush_logs` — Oracle считает `''` = NULL, а `LINE_TEXT` NOT NULL
 
 ## runs.py — важные детали
 
 - **cancel_run**: `celery_app.control.revoke(terminate=True, signal="SIGTERM")` — без `os.kill`
-- **SSE stream**: timeout 8 часов
+- **SSE stream**: timeout 8 часов; свежая `AsyncSessionLocal()` на каждую итерацию (избегает identity map кэша и stale Oracle snapshot); keepalive комментарий `": keepalive\n\n"` каждую секунду
 - **date_from/date_to**: нормализуются в UTC naive через `_utc_naive()`
+
+## LogViewer (frontend) — важные детали
+
+- **Live режим**: polling `/api/runs/{id}/logs` каждые 2 секунды пока `isLive=true` (SSE не доходил до браузера через uvicorn/nginx стек)
+- **После завершения**: загружает статичные логи через тот же endpoint
 
 ## UI Features
 
