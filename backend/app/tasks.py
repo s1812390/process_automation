@@ -328,39 +328,67 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
         _sampler = threading.Thread(target=_sample_resources, daemon=True)
         _sampler.start()
 
-        # 7. Read stdout/stderr line by line with timeout
-        import select as sel_module
+        # 7. Read stdout/stderr line by line, flushing to DB in real time
+        import queue as _queue_module
 
-        stdout_lines = []
-        stderr_lines = []
+        _log_queue = _queue_module.Queue()
 
-        def read_stream(stream, stream_name, lines_list):
+        def read_stream(stream, stream_name):
             for line in stream:
-                line = line.rstrip("\n")
-                lines_list.append((stream_name, line))
+                _log_queue.put((stream_name, line.rstrip("\n")))
             stream.close()
 
         stdout_thread = threading.Thread(
-            target=read_stream, args=(proc.stdout, "stdout", stdout_lines)
+            target=read_stream, args=(proc.stdout, "stdout")
         )
         stderr_thread = threading.Thread(
-            target=read_stream, args=(proc.stderr, "stderr", stderr_lines)
+            target=read_stream, args=(proc.stderr, "stderr")
         )
 
         stdout_thread.start()
         stderr_thread.start()
 
-        # Wait for process with timeout
-        try:
-            proc.wait(timeout=effective_timeout)
-            exit_code = proc.returncode
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            stdout_thread.join(timeout=5)
-            stderr_thread.join(timeout=5)
-            _sampling_stop.set()
-            _sampler.join(timeout=3)
-            elapsed_ms = int((time.time() - start_time) * 1000)
+        def _drain_log_queue():
+            batch = []
+            try:
+                while True:
+                    batch.append(_log_queue.get_nowait())
+            except _queue_module.Empty:
+                pass
+            if batch:
+                _flush_logs(session, run_id, batch)
+
+        # Poll process with periodic log flushes so the SSE stream sees output in real time
+        exit_code = None
+        timed_out = False
+
+        while True:
+            elapsed = time.time() - start_time
+            if elapsed >= effective_timeout:
+                proc.kill()
+                timed_out = True
+                break
+
+            _drain_log_queue()
+
+            retcode = proc.poll()
+            if retcode is not None:
+                exit_code = retcode
+                break
+
+            time.sleep(0.5)
+
+        stdout_thread.join(timeout=10)
+        stderr_thread.join(timeout=10)
+        _sampling_stop.set()
+        _sampler.join(timeout=3)
+
+        # Flush any remaining log lines after threads have finished
+        _drain_log_queue()
+
+        elapsed_ms = int((time.time() - start_time) * 1000)
+
+        if timed_out:
             run.status = "timeout"
             run.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
             run.duration_ms = elapsed_ms
@@ -369,22 +397,10 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
             if _cpu_samples:
                 run.avg_cpu_percent = int(sum(_cpu_samples) / len(_cpu_samples))
             session.commit()
-
-            _flush_logs(session, run_id, stdout_lines + stderr_lines)
             _handle_retry_or_alert(session, script, run, "timeout")
             return
 
-        stdout_thread.join(timeout=10)
-        stderr_thread.join(timeout=10)
-        _sampling_stop.set()
-        _sampler.join(timeout=3)
-
-        elapsed_ms = int((time.time() - start_time) * 1000)
-
-        # 8. Flush all collected logs
-        _flush_logs(session, run_id, stdout_lines + stderr_lines)
-
-        # 9. Update status
+        # 8. Update status
         final_status = "success" if exit_code == 0 else "failed"
         run.status = final_status
         run.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
