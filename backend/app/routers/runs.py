@@ -173,43 +173,49 @@ async def stream_logs(run_id: int, session: AsyncSession = Depends(get_db)):
         offset = 0
         deadline = asyncio.get_event_loop().time() + _SSE_TIMEOUT
 
-        async with AsyncSessionLocal() as db:
-            while True:
-                if asyncio.get_event_loop().time() > deadline:
-                    yield f"data: {json.dumps({'type': 'timeout', 'message': 'Stream closed after 8 hours'})}\n\n"
-                    return
+        while True:
+            if asyncio.get_event_loop().time() > deadline:
+                yield f"data: {json.dumps({'type': 'timeout', 'message': 'Stream closed after 8 hours'})}\n\n"
+                return
 
-                # Check run status
-                run = await db.get(ScriptRun, run_id)
-                if not run:
-                    yield f"data: {json.dumps({'type': 'error', 'message': 'Run not found'})}\n\n"
-                    return
+            # Open a fresh session each iteration so Oracle always returns the
+            # latest committed data (avoids identity-map caching and stale
+            # transaction read snapshots from a long-lived session).
+            try:
+                async with AsyncSessionLocal() as db:
+                    run = await db.get(ScriptRun, run_id)
+                    if not run:
+                        yield f"data: {json.dumps({'type': 'error', 'message': 'Run not found'})}\n\n"
+                        return
 
-                # Fetch new logs
-                result = await db.execute(
-                    select(RunLog)
-                    .where(RunLog.run_id == run_id)
-                    .order_by(RunLog.id)
-                    .offset(offset)
-                    .limit(100)
-                )
-                new_logs = result.scalars().all()
+                    result = await db.execute(
+                        select(RunLog)
+                        .where(RunLog.run_id == run_id)
+                        .order_by(RunLog.id)
+                        .offset(offset)
+                        .limit(100)
+                    )
+                    new_logs = result.scalars().all()
+                    run_status = run.status
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+                return
 
-                for log in new_logs:
-                    data = {
-                        "id": log.id,
-                        "stream": log.stream,
-                        "line_text": log.line_text,
-                        "logged_at": log.logged_at.isoformat() if log.logged_at else None,
-                    }
-                    yield f"data: {json.dumps(data)}\n\n"
-                    offset += 1
+            for log in new_logs:
+                data = {
+                    "id": log.id,
+                    "stream": log.stream,
+                    "line_text": log.line_text,
+                    "logged_at": log.logged_at.isoformat() if log.logged_at else None,
+                }
+                yield f"data: {json.dumps(data)}\n\n"
+                offset += 1
 
-                if run.status not in ("running", "pending"):
-                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
-                    return
+            if run_status not in ("running", "pending"):
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                return
 
-                await asyncio.sleep(1)
+            await asyncio.sleep(1)
 
     return StreamingResponse(
         event_generator(),
