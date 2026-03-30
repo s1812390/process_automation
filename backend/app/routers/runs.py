@@ -215,6 +215,10 @@ async def stream_logs(run_id: int, session: AsyncSession = Depends(get_db)):
                 yield f"data: {json.dumps({'type': 'done'})}\n\n"
                 return
 
+            # SSE comment — keeps the connection alive and forces nginx/uvicorn
+            # to flush their buffers even when there are no new log lines.
+            yield ": keepalive\n\n"
+
             await asyncio.sleep(1)
 
     return StreamingResponse(
