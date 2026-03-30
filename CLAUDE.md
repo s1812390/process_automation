@@ -85,9 +85,9 @@ process_automation/
 │       │   └── Environments.tsx # Python env management page
 │       └── components/
 │           └── layout/Sidebar.tsx  # + "Python Envs" nav item
-├── docker-compose.yml           # MTU=1400 network; PIP_INDEX_URL=mirrors.tencent.com
-├── docker-compose.prod.yml      # Same; deploy via CI
-├── .gitlab-ci.yml               # deploy: docker-compose down && up (recreates network)
+├── docker-compose.yml           # MTU=1400 network; PIP_INDEX_URL=mirrors.tencent.com; DNS=8.8.8.8
+├── docker-compose.prod.yml      # MTU=1400; PIP_INDEX_URL=inh-nexus.tele2.kz; DNS=10.200.200.70
+├── .gitlab-ci.yml               # deploy: stop→rm→network rm→up (fixed race condition)
 └── CLAUDE.md
 ```
 
@@ -144,7 +144,10 @@ async def _pip_install(pip_bin, pkg_spec):
         timeout=600,
     )
 ```
-`PIP_INDEX_URL` from env var (docker-compose sets `mirrors.tencent.com` for dev, `pypi.org` for prod).
+`PIP_INDEX_URL` from env var:
+- **dev** (`docker-compose.yml`): `https://mirrors.tencent.com/pypi/simple/`
+- **prod** (`docker-compose.prod.yml`): `https://inh-nexus.tele2.kz/repository/pypi-proxy/simple` (корп. Nexus прокси)
+- `PIP_TRUSTED_HOST` also set to avoid SSL errors on internal host
 
 ---
 
@@ -260,47 +263,26 @@ docker compose up -d --build frontend
 
 ```bash
 docker-compose pull &&
-docker-compose down --remove-orphans &&   # stops all + removes old network
-docker volume rm ${CI_PROJECT_NAME}_celery_beat_schedule || true &&
-docker-compose up -d                      # creates new network with MTU 1400
+docker-compose stop &&                                              # stop all containers
+docker-compose rm -f &&                                            # remove containers (network preserved)
+docker volume rm ${CI_PROJECT_NAME}_celery_beat_schedule 2>/dev/null || true &&
+docker network rm ${CI_PROJECT_NAME}_default 2>/dev/null || true &&  # explicit network removal
+docker-compose up -d --remove-orphans                              # fresh network with MTU=1400
 ```
 
-**ПРОБЛЕМА**: `docker-compose down && docker-compose up -d` иногда падает с:
-`Error response from daemon: network <old-id> not found`
-Это race condition в docker-compose при пересоздании сети. **НЕ РЕШЕНО** — нужно разобраться в новой сессии.
+**Почему так**: старый `docker-compose down` имел race condition — контейнеры от `--remove-orphans`
+держали ссылку на старый network ID, `up` создавал новую сеть с другим ID → ошибка
+`network <old-id> not found`. Новый подход: явное детерминированное удаление сети перед `up`.
 
-## Сетевая проблема pip install — статус
+## Сетевая проблема pip install — РЕШЕНО
 
-**Симптом**: pip install зависает / тайм-аут внутри Docker контейнеров.
+**Проблема была**: корпоративный firewall блокирует доступ к внешним PyPI зеркалам.
 
-**Диагностика**:
-- TCP connect к pypi.org/mirrors.tencent.com работает (< 10 сек)
-- TLS handshake / HTTP response зависает бесконечно
-- curl от хоста работает если дать достаточно времени
-- Нет прокси (`env | grep -i proxy` пусто)
-- IPv6 не работает с хоста, но это не причина — IPv4 тоже зависает
-
-**Диагноз**: MTU black hole — ICMP "fragmentation needed" блокируется корпоративным firewall. TCP SYN/SYN-ACK (мелкие пакеты) проходят, но большие пакеты TLS/HTTP молча дропаются.
-
-**Попытки исправления**:
-1. ✗ Смена зеркала (pypi.org → mirrors.tencent.com → обратно)
-2. ✗ DNS 8.8.8.8 в docker-compose
-3. ✗ gai.conf IPv4 preference (IPv6 не виноват)
-4. ✗ Docker --network=host (хост тоже имеет ту же проблему с pip)
-5. ⚠ MTU 1400 в docker-compose network config — **добавлено, но деплой сломался раньше чем проверили**
-
-**Текущее состояние кода** (environments.py):
-```python
-async def _pip_install(pip_bin, pkg_spec):
-    return await _run_cmd(
-        [pip_bin, "install", "--timeout", "120", "--index-url", PIP_INDEX_URL, pkg_spec],
-        timeout=600,
-    )
-```
-Docker bridge MTU=1400 настроен в docker-compose но ещё не был успешно задеплоен.
-
-**Следующий шаг**: починить CI деплой (race condition), задеплоить MTU fix, проверить работает ли pip.
-Если нет — попробовать `ip route add <pypi-ip> via <gateway> mtu 1400` или `iptables -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1360` на хосте (требует root/sudo).
+**Решение**:
+- **prod**: корпоративный Nexus прокси `inh-nexus.tele2.kz` + корп. DNS `10.200.200.70/192.168.101.70`
+- **dev**: `mirrors.tencent.com` + публичный DNS `8.8.8.8` (без изменений)
+- Docker bridge MTU=1400 настроен в обоих compose-файлах
+- CI теперь явно пересоздаёт сеть → MTU=1400 гарантированно применяется
 
 ## tasks.py — важные детали
 

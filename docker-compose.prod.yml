@@ -19,8 +19,8 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - PIP_INDEX_URL=https://serik.tashanov:${GITLAB_PYPI_TOKEN}@gitlab.tele2.kz/api/v4/groups/financial_dep/-/packages/pypi/simple/
-      - PIP_TRUSTED_HOST=gitlab.tele2.kz
+      - PIP_INDEX_URL=https://inh-nexus.tele2.kz/repository/pypi-proxy/simple
+      - PIP_TRUSTED_HOST=inh-nexus.tele2.kz
     dns:
       - 10.200.200.70
       - 192.168.101.70
@@ -43,8 +43,8 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
-      - PIP_INDEX_URL=https://serik.tashanov:${GITLAB_PYPI_TOKEN}@gitlab.tele2.kz/api/v4/groups/financial_dep/-/packages/pypi/simple/
-      - PIP_TRUSTED_HOST=gitlab.tele2.kz
+      - PIP_INDEX_URL=https://inh-nexus.tele2.kz/repository/pypi-proxy/simple
+      - PIP_TRUSTED_HOST=inh-nexus.tele2.kz
     dns:
       - 10.200.200.70
       - 192.168.101.70
