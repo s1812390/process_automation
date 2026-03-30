@@ -462,6 +462,10 @@ def execute_script(self: Task, script_id: int, run_id: int = None):
 def _flush_logs(session, run_id: int, lines: list):
     from app.models import RunLog
     for stream, line_text in lines:
+        # Oracle treats '' as NULL; replace empty lines with a space so the
+        # NOT NULL constraint on LINE_TEXT is satisfied.
+        if not line_text:
+            line_text = " "
         log = RunLog(run_id=run_id, stream=stream, line_text=line_text)
         session.add(log)
     session.commit()
