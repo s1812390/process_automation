@@ -103,12 +103,20 @@ class DatabaseScheduler(PersistentScheduler):
             session = self._get_session()
             try:
                 tz_name = self._get_timezone_name(session)
+                tz_info = ZoneInfo(tz_name)
+                # "now" expressed in the app timezone — used for new last_run_at
+                # values so that crontab.remaining_delta() compares hours/minutes
+                # in local time rather than UTC.
+                now_in_tz = datetime.now(tz_info)
 
                 # If timezone changed, update app config and force-recreate all
                 # crontab entries so they pick up the new timezone.
                 tz_changed = (tz_name != self._last_tz_name)
                 if tz_changed:
                     self.app.conf.timezone = tz_name
+                    # Clear the @cached_property so app.timezone (and therefore
+                    # app.now() and crontab.tz) immediately reflects the new value.
+                    self.app.__dict__.pop('timezone', None)
                     self._last_tz_name = tz_name
                     logger.info("Beat timezone updated", timezone=tz_name)
 
@@ -129,9 +137,12 @@ class DatabaseScheduler(PersistentScheduler):
                         existing = self.schedule.get(task_name)
 
                         if existing is None:
-                            # New script — set last_run_at to NOW so Celery computes
-                            # the *next* matching cron slot from this moment forward.
-                            # Using year-2000 caused immediate firing on every startup.
+                            # New script — set last_run_at to NOW (in app tz) so
+                            # Celery computes the *next* matching cron slot from
+                            # this moment forward.  Must be in app timezone because
+                            # crontab.remaining_delta() uses last_run_at.hour to
+                            # determine the next due slot; a UTC-aware value would
+                            # cause hour comparisons to be off by the UTC offset.
                             self.schedule[task_name] = ScheduleEntry(
                                 name=task_name,
                                 task="app.tasks.execute_script",
@@ -140,18 +151,22 @@ class DatabaseScheduler(PersistentScheduler):
                                 kwargs={},
                                 options={"queue": _get_queue(script.priority)},
                                 app=self.app,
-                                last_run_at=datetime.now(timezone.utc),
+                                last_run_at=now_in_tz,
                                 total_run_count=0,
                             )
                         elif tz_changed or _schedule_changed(existing.schedule, sched):
                             # Cron expression or timezone changed — recreate entry
-                            # but preserve last_run_at so we don't double-fire
+                            # but preserve last_run_at so we don't double-fire.
                             last_run = existing.last_run_at
                             # Guard against stale shelve data from old code that
                             # stored year-2000 as last_run_at — reset to now so
                             # beat doesn't treat the entry as overdue and fire early.
                             if last_run is None or last_run.year < 2020:
-                                last_run = datetime.now(timezone.utc)
+                                last_run = now_in_tz
+                            else:
+                                # Convert to app timezone so that .hour/.minute
+                                # attributes reflect local time, not UTC.
+                                last_run = last_run.astimezone(tz_info)
                             self.schedule[task_name] = ScheduleEntry(
                                 name=task_name,
                                 task="app.tasks.execute_script",
@@ -176,7 +191,7 @@ class DatabaseScheduler(PersistentScheduler):
                                     kwargs={},
                                     options={"queue": _get_queue(script.priority)},
                                     app=self.app,
-                                    last_run_at=datetime.now(timezone.utc),
+                                    last_run_at=now_in_tz,
                                     total_run_count=existing.total_run_count,
                                 )
                             # else: fully up-to-date — leave it alone
