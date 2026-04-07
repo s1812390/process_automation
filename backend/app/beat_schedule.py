@@ -109,6 +109,12 @@ class DatabaseScheduler(PersistentScheduler):
                 tz_changed = (tz_name != self._last_tz_name)
                 if tz_changed:
                     self.app.conf.timezone = tz_name
+                    # app.timezone is a @cached_property (kombu.utils.objects).
+                    # Simply updating conf.timezone does not invalidate the cache —
+                    # we must evict it so the next access re-evaluates from conf.
+                    # Without this, all crontab.tz values remain UTC regardless of
+                    # what timezone is configured in the DB.
+                    self.app.__dict__.pop('timezone', None)
                     self._last_tz_name = tz_name
                     logger.info("Beat timezone updated", timezone=tz_name)
 
