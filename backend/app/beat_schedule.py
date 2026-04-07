@@ -128,7 +128,7 @@ class DatabaseScheduler(PersistentScheduler):
                 new_task_names = set()
                 for script in scripts:
                     try:
-                        sched = self._parse_cron(script.cron_expression)
+                        sched = self._parse_cron(script.cron_expression, tz_name)
                         task_name = f"script-{script.id}"
                         new_task_names.add(task_name)
 
@@ -210,19 +210,23 @@ class DatabaseScheduler(PersistentScheduler):
         except Exception as e:
             logger.error("Failed to update beat schedule from DB", error=str(e))
 
-    def _parse_cron(self, expr: str) -> crontab:
+    def _parse_cron(self, expr: str, tz_name: str = "UTC") -> crontab:
         """Parse a 5-field cron expression into a Celery crontab.
 
-        The crontab is created with ``app=self.app`` so that it inherits the
-        app's ``conf.timezone`` (updated to the DB value in ``_update_from_db``).
-        This ensures the cron fires in the configured local timezone rather than
-        always in UTC.
+        We inject the timezone by writing directly into the crontab instance's
+        __dict__ (the kombu cached_property backing store).  This bypasses
+        app.timezone entirely — that property may still be cached as UTC at the
+        time is_due() runs regardless of what we set on app.conf.timezone,
+        causing every cron to fire 5 hours late on UTC+5 deployments.
+
+        sched.__dict__['tz'] is exactly where kombu's cached_property stores
+        its value, so the next sched.tz read returns our ZoneInfo directly.
         """
         normalized = ' '.join(expr.strip().split())
         parts = normalized.split()
         if len(parts) == 5:
             minute, hour, day, month, day_of_week = parts
-            return crontab(
+            sched = crontab(
                 minute=minute,
                 hour=hour,
                 day_of_month=day,
@@ -230,6 +234,9 @@ class DatabaseScheduler(PersistentScheduler):
                 day_of_week=day_of_week,
                 app=self.app,
             )
+            # Force the local timezone directly into the cached_property slot.
+            sched.__dict__['tz'] = ZoneInfo(tz_name)
+            return sched
         raise ValueError(
             f"Invalid cron expression: {expr!r} "
             "(must be 5 space-separated fields, e.g. '* * * * *')"
