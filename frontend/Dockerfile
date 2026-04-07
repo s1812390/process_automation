@@ -5,7 +5,12 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ .
 ARG VITE_BASE_PATH=/scheduler/
-RUN VITE_BASE_PATH=$VITE_BASE_PATH npm run build
+ARG VITE_COMMIT_COUNT=0
+ARG VITE_COMMIT_MESSAGE=""
+RUN VITE_BASE_PATH=$VITE_BASE_PATH \
+    VITE_COMMIT_COUNT=$VITE_COMMIT_COUNT \
+    VITE_COMMIT_MESSAGE="$VITE_COMMIT_MESSAGE" \
+    npm run build
 
 # Stage 2 — serve via nginx
 FROM nginx:1.25-alpine

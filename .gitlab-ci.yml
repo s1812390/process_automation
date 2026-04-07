@@ -33,9 +33,13 @@ build-frontend:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
   script:
+    - COMMIT_COUNT=$(git rev-list --count HEAD)
+    - COMMIT_MSG=$(git log -1 --pretty="%s" | cut -c1-100)
     - >
       docker build --cache-from $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG
       -t $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG
+      --build-arg VITE_COMMIT_COUNT="$COMMIT_COUNT"
+      --build-arg VITE_COMMIT_MESSAGE="$COMMIT_MSG"
       -f ./frontend/Dockerfile .
     - docker push $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG
 

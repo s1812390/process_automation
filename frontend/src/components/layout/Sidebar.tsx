@@ -2,6 +2,10 @@ import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, Code2, Settings, Clock, Variable, Play, Box } from 'lucide-react'
 import { clsx } from 'clsx'
 
+const commitCount = import.meta.env.VITE_COMMIT_COUNT || '0'
+const commitMessage = import.meta.env.VITE_COMMIT_MESSAGE || ''
+const appVersion = `v1.${commitCount}`
+
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/runs', icon: Play, label: 'Runs' },
@@ -54,7 +58,12 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="px-5 py-4 border-t border-[rgba(99,112,156,0.08)]">
-        <div className="text-[10px] text-ink-3">v1.0.1</div>
+        <div
+          className="text-[10px] text-ink-3 cursor-default select-none"
+          title={commitMessage || appVersion}
+        >
+          {appVersion}
+        </div>
       </div>
     </aside>
   )
