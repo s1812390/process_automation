@@ -244,6 +244,10 @@ docker compose up -d --build frontend
 ## Beat Scheduler — важные детали
 
 - Читает скрипты из DB каждые 60 сек (+ Redis force-reload сигнал)
+- **`max_interval = 5` на `DatabaseScheduler`** — КРИТИЧНО. У базового Scheduler дефолт 300с, и beat
+  спит до 5 мин, когда нет ближайшей задачи. Это ломало force-reload (новый cron подхватывался
+  только через ~5 мин или после `restart`) и heartbeat (протухал → ложный «beat down»). Короткий
+  интервал = частые тики: force-reload применяется почти мгновенно, heartbeat всегда свежий
 - Cron должен быть с пробелами: `* * * * *`, не `*****`
 - `last_run_at` для новых записей = `datetime.now(UTC)` — НЕ год 2000
 - Shelve-файл: `celerybeat-schedule` (volume `celery_beat_schedule:/data`)

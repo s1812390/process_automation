@@ -58,6 +58,17 @@ class DatabaseScheduler(PersistentScheduler):
 
     UPDATE_INTERVAL = 60  # seconds between DB reads
 
+    # Cap how long beat sleeps between ticks. The base Scheduler defaults to
+    # 300s, which means beat can sleep up to 5 minutes when no task is due
+    # soon. That breaks two things this scheduler relies on:
+    #   1. the beat:force_reload signal (checked only inside tick) — so cron
+    #      add/edit would only apply on the next wake, up to 5 min later;
+    #   2. the beat:heartbeat (refreshed only inside tick) — so it would go
+    #      stale for up to 5 min and trigger false "beat down" alarms.
+    # A short interval makes beat wake every few seconds: force-reload applies
+    # near-instantly and the heartbeat stays fresh.
+    max_interval = 5  # seconds
+
     def __init__(self, *args, **kwargs):
         self._db_last_update = 0
         self._beat_engine = None
