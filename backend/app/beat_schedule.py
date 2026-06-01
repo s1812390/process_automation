@@ -1,6 +1,7 @@
 """
 Dynamic beat schedule that reads active scripts with cron_expression from Oracle DB.
 """
+import json
 import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -12,6 +13,15 @@ logger = structlog.get_logger()
 
 # Redis key that the API sets to trigger an immediate schedule reload
 FORCE_RELOAD_KEY = "beat:force_reload"
+
+# Liveness signal: refreshed on every tick. The API reads it to tell whether
+# beat is actually running (a stale/missing value means beat is down).
+HEARTBEAT_KEY = "beat:heartbeat"
+HEARTBEAT_TTL = 300  # seconds — key disappears if beat stops ticking
+
+# Snapshot of the schedule beat currently holds, refreshed on every DB reload.
+# Lets the API compare "what beat will run" against "what the DB says".
+STATUS_KEY = "beat:status"
 
 
 def _make_beat_engine():
@@ -69,11 +79,18 @@ class DatabaseScheduler(PersistentScheduler):
         now = time.monotonic()
         force_reload = False
 
-        # Check Redis flag set by the API when scripts are created/toggled
+        # Check Redis flag set by the API when scripts are created/toggled,
+        # and refresh the liveness heartbeat so the API can detect a dead beat.
         try:
             r = self._get_redis()
-            if r and r.getdel(FORCE_RELOAD_KEY):
-                force_reload = True
+            if r:
+                r.set(
+                    HEARTBEAT_KEY,
+                    datetime.now(timezone.utc).isoformat(),
+                    ex=HEARTBEAT_TTL,
+                )
+                if r.getdel(FORCE_RELOAD_KEY):
+                    force_reload = True
         except Exception:
             pass
 
@@ -208,6 +225,7 @@ class DatabaseScheduler(PersistentScheduler):
                     del self.schedule[k]
 
                 self.sync()
+                self._publish_status(scripts, tz_name, now_in_tz)
                 logger.info(
                     "Beat schedule updated",
                     count=len(new_task_names),
@@ -218,6 +236,47 @@ class DatabaseScheduler(PersistentScheduler):
 
         except Exception as e:
             logger.error("Failed to update beat schedule from DB", error=str(e))
+
+    def _publish_status(self, scripts, tz_name, now_in_tz):
+        """Write a snapshot of the live schedule to Redis for the API to read.
+
+        Best-effort: never let a publishing error break the scheduler loop.
+        """
+        try:
+            r = self._get_redis()
+            if not r:
+                return
+
+            tasks = []
+            for script in scripts:
+                entry = self.schedule.get(f"script-{script.id}")
+                if entry is None:
+                    continue
+                last_run = entry.last_run_at
+                next_run = None
+                try:
+                    delta = entry.schedule.remaining_estimate(last_run)
+                    next_run = (now_in_tz + delta).isoformat()
+                except Exception:
+                    pass
+                tasks.append({
+                    "script_id": script.id,
+                    "name": script.name,
+                    "cron": script.cron_expression,
+                    "last_run_at": last_run.isoformat() if last_run else None,
+                    "next_run_estimate": next_run,
+                    "total_run_count": entry.total_run_count,
+                })
+
+            payload = {
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "timezone": tz_name,
+                "count": len(tasks),
+                "tasks": tasks,
+            }
+            r.set(STATUS_KEY, json.dumps(payload))
+        except Exception as e:
+            logger.warning("Beat: failed to publish status to Redis", error=str(e))
 
     def _parse_cron(self, expr: str) -> crontab:
         """Parse a 5-field cron expression into a Celery crontab.

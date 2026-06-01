@@ -197,6 +197,7 @@ async def _pip_install(pip_bin, pkg_spec):
 | GET | `/api/system/fast-stats` | Host, disk, log files, orphan runs (~0.5s, concurrent) |
 | GET | `/api/system/container-stats` | Docker container CPU/RAM (~5s, isolated) |
 | GET | `/api/system/container-logs/{name}` | Container log lines |
+| GET | `/api/system/beat-status` | Scheduler health: beat heartbeat + live schedule vs DB diff |
 | **GET/POST** | **`/api/environments`** | **List / create Python envs** |
 | **GET/DELETE** | **`/api/environments/{id}`** | **Get / delete env** |
 | **GET/POST** | **`/api/environments/{id}/packages`** | **List / install package** |
@@ -247,6 +248,13 @@ docker compose up -d --build frontend
 - `last_run_at` для новых записей = `datetime.now(UTC)` — НЕ год 2000
 - Shelve-файл: `celerybeat-schedule` (volume `celery_beat_schedule:/data`)
 - При деплое: CI удаляет volume → чистый старт
+- **beat ОБЯЗАН иметь corporate `dns:` в проде** — он читает Oracle напрямую. Без DNS на новом
+  сервере beat не резолвит Oracle-хост → `_update_from_db` падает → cron молчит (при этом UI и
+  ручной запуск работают, т.к. backend/worker имеют свой `dns:`)
+- **Heartbeat/диагностика**: beat пишет `beat:heartbeat` (TTL 300s) на каждый tick и снапшот
+  расписания `beat:status` на каждый DB-reload. Проверка живости и дрейфа: `GET /api/system/beat-status`
+  (поля `beat_alive`, `in_sync`, `missing_in_beat`, `stale_in_beat`). Если `beat_alive=false` —
+  процесс beat не тикает (упал/не запущен/нет коннекта к Redis)
 
 ## SH_APP_SETTINGS — известные ключи
 

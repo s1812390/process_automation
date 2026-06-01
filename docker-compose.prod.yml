@@ -64,6 +64,9 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
+    dns:
+      - 10.200.200.70
+      - 192.168.101.70
     command: celery -A app.celery_app beat --scheduler app.beat_schedule.DatabaseScheduler --loglevel=info --schedule /data/celerybeat-schedule
     volumes:
       - celery_beat_schedule:/data

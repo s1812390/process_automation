@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import shutil
 from datetime import datetime, timezone, timedelta
@@ -297,6 +298,91 @@ async def get_fast_stats():
         _runs(),
     )
     return {"host": host, "disk": disk, "log_files": log_files, "runs": runs}
+
+
+def _get_beat_status() -> dict:
+    """Compare what celery-beat is actually scheduling against what the DB says.
+
+    Reads the heartbeat + schedule snapshot that the beat process publishes to
+    Redis (see beat_schedule.py), then diffs it against the active cron scripts
+    in the DB. Surfaces a dead beat (stale/missing heartbeat) and any drift
+    between the two views.
+    """
+    from app.beat_schedule import HEARTBEAT_KEY, STATUS_KEY
+    from app.models import Script
+
+    # --- beat side: heartbeat + published schedule snapshot ---
+    beat_alive = False
+    last_heartbeat = None
+    heartbeat_age_sec = None
+    beat_snapshot = None
+    try:
+        r = _get_redis()
+        hb = r.get(HEARTBEAT_KEY)
+        if hb:
+            last_heartbeat = hb.decode() if isinstance(hb, bytes) else hb
+            hb_dt = datetime.fromisoformat(last_heartbeat)
+            age = (datetime.now(timezone.utc) - hb_dt).total_seconds()
+            heartbeat_age_sec = round(age, 1)
+            # tick interval is up to ~60s; allow margin before calling it dead
+            beat_alive = age < 180
+        status_raw = r.get(STATUS_KEY)
+        if status_raw:
+            beat_snapshot = json.loads(
+                status_raw.decode() if isinstance(status_raw, bytes) else status_raw
+            )
+    except Exception as e:
+        logger.warning("Failed to read beat status from Redis", error=str(e))
+
+    beat_tasks = (beat_snapshot or {}).get("tasks", [])
+    beat_ids = {t["script_id"] for t in beat_tasks}
+
+    # --- DB side: active scripts that have a cron expression ---
+    db_scripts = []
+    db_ids = set()
+    session = _SyncSession()
+    try:
+        rows = session.execute(
+            select(Script).where(
+                Script.is_active == True,  # noqa: E712
+                Script.cron_expression != None,  # noqa: E711
+            )
+        ).scalars().all()
+        for s in rows:
+            db_ids.add(s.id)
+            db_scripts.append({
+                "script_id": s.id,
+                "name": s.name,
+                "cron": s.cron_expression,
+            })
+    finally:
+        session.close()
+
+    # --- diff ---
+    missing_in_beat = [s for s in db_scripts if s["script_id"] not in beat_ids]
+    stale_in_beat = [t for t in beat_tasks if t["script_id"] not in db_ids]
+    in_sync = beat_alive and not missing_in_beat and not stale_in_beat
+
+    return {
+        "beat_alive": beat_alive,
+        "last_heartbeat": last_heartbeat,
+        "heartbeat_age_sec": heartbeat_age_sec,
+        "in_sync": in_sync,
+        "snapshot_updated_at": (beat_snapshot or {}).get("updated_at"),
+        "timezone": (beat_snapshot or {}).get("timezone"),
+        "beat_count": len(beat_tasks),
+        "db_count": len(db_scripts),
+        "scheduled": beat_tasks,
+        "db_expected": db_scripts,
+        "missing_in_beat": missing_in_beat,
+        "stale_in_beat": stale_in_beat,
+    }
+
+
+@router.get("/beat-status")
+async def get_beat_status():
+    """Scheduler health: is beat alive, and does its schedule match the DB?"""
+    return await asyncio.to_thread(_get_beat_status)
 
 
 @router.get("/container-stats")
