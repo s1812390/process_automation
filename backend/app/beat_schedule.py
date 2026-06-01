@@ -56,7 +56,12 @@ def _make_beat_engine():
 class DatabaseScheduler(PersistentScheduler):
     """Custom Celery Beat scheduler that reads cron jobs from Oracle DB."""
 
-    UPDATE_INTERVAL = 60  # seconds between DB reads
+    # Background safety reconcile with the DB. Changes made through the API
+    # (create/edit/toggle a cron script) apply near-instantly via the
+    # beat:force_reload signal regardless of this value; this interval only
+    # bounds how fast out-of-band changes (e.g. cron edited directly in the DB)
+    # get noticed.
+    UPDATE_INTERVAL = 300  # seconds between DB reads
 
     # Cap how long beat sleeps between ticks. The base Scheduler defaults to
     # 300s, which means beat can sleep up to 5 minutes when no task is due
