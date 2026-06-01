@@ -2,16 +2,20 @@ stages:
   - build
   - deploy
 
+default:
+  tags:
+    - bss-prod
+
 variables:
-  BACKEND_IMAGE: $CI_REGISTRY_IMAGE/backend
-  FRONTEND_IMAGE: $CI_REGISTRY_IMAGE/frontend
-  REDIS_IMAGE: $CI_REGISTRY_IMAGE/redis
-  COMPOSE_PATH: /data/docker-compose/$CI_PROJECT_NAMESPACE/$CI_PROJECT_NAME
+  BACKEND_IMAGE: harbor-digital.tele2.kz/bss/process-automation-backend
+  FRONTEND_IMAGE: harbor-digital.tele2.kz/bss/process-automation-frontend
+  REDIS_IMAGE: harbor-digital.tele2.kz/bss/process-automation-redis
+  COMPOSE_PATH: /data/docker-compose/financial_dep/$CI_PROJECT_NAME
 
 mirror-redis:
   stage: build
   before_script:
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - docker login -u $HARBOR_USERNAME -p $HARBOR_PASSWORD $HARBOR_HOST
   script:
     - docker pull redis:7-alpine
     - docker tag redis:7-alpine $REDIS_IMAGE:7-alpine
@@ -20,7 +24,7 @@ mirror-redis:
 build-backend:
   stage: build
   before_script:
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - docker login -u $HARBOR_USERNAME -p $HARBOR_PASSWORD $HARBOR_HOST
   script:
     - >
       docker build --cache-from $BACKEND_IMAGE:$CI_COMMIT_REF_SLUG
@@ -30,8 +34,10 @@ build-backend:
 
 build-frontend:
   stage: build
+  variables:
+    HARBOR_IMAGE: "${HARBOR_HOST}/${HARBOR_PROJECT}/${CI_PROJECT_NAME}"
   before_script:
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - docker login -u $HARBOR_USERNAME -p $HARBOR_PASSWORD $HARBOR_HOST
   script:
     - >
       docker build --cache-from $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG
@@ -41,14 +47,13 @@ build-frontend:
       -f ./frontend/Dockerfile .
     - docker push $FRONTEND_IMAGE:$CI_COMMIT_REF_SLUG
 
-deploy:
+Deploy:
   stage: deploy
-  image: governmentpaas/git-ssh
+  image: inh-registry.tele2.kz/inhouse-devops/toolbox:latest
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
   before_script:
-    - "which ssh-agent || ( apt-get update -y && apt-get install openssh-client git -y )"
-    - "which envsubst || apk add --no-cache gettext"
+    - apt-get update -y && apt-get install openssh-client git gettext -y
     - eval $(ssh-agent -s)
     - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
     - mkdir -p ~/.ssh
@@ -56,7 +61,7 @@ deploy:
     - ssh-keyscan $SSH_SERVER_HOST >> ~/.ssh/known_hosts
     - chmod 644 ~/.ssh/known_hosts
   script:
-    - ssh -T finuser@$SSH_SERVER_HOST docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - ssh -T finuser@$SSH_SERVER_HOST
     - ssh finuser@$SSH_SERVER_HOST mkdir -p $COMPOSE_PATH
     - envsubst < docker-compose.prod.yml > /tmp/docker-compose.rendered.yml
     - scp /tmp/docker-compose.rendered.yml finuser@$SSH_SERVER_HOST:$COMPOSE_PATH/docker-compose.yml
