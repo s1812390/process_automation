@@ -30,7 +30,19 @@ def _make_beat_engine():
     from sqlalchemy.orm import sessionmaker
     from app.config import settings
 
-    engine = create_engine(settings.sync_database_url, pool_size=2, max_overflow=2)
+    # pool_pre_ping: validate (and silently reconnect) a connection before use,
+    #   so a stale/dropped Oracle session never gets handed to a query.
+    # pool_recycle: proactively drop connections older than 5 min, before a
+    #   corporate firewall idle-timeout can leave them half-open.
+    # Without these, a single hung DB call freezes the single-threaded beat
+    #   loop indefinitely (restart: always can't recover a hang, only a crash).
+    engine = create_engine(
+        settings.sync_database_url,
+        pool_size=2,
+        max_overflow=2,
+        pool_pre_ping=True,
+        pool_recycle=300,
+    )
 
     @event.listens_for(engine, "connect")
     def _force_utc(dbapi_conn, _):
