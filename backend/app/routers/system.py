@@ -353,6 +353,7 @@ def _get_beat_status() -> dict:
             db_scripts.append({
                 "script_id": s.id,
                 "name": s.name,
+                "tag": s.tag,
                 "cron": s.cron_expression,
             })
     finally:

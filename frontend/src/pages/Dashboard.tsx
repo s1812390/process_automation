@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Code2, Play, CheckCircle, XCircle, AlertTriangle, Cpu, HardDrive, Container, Activity, X, Terminal, CalendarClock } from 'lucide-react'
+import { Code2, Play, CheckCircle, XCircle, AlertTriangle, Cpu, HardDrive, Container, Activity, X, Terminal, CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react'
 import { runsApi } from '../api/runs'
 import { scriptsApi } from '../api/scripts'
-import { systemApi, FastStats, ContainerStatsResponse, BeatStatus } from '../api/system'
+import { systemApi, FastStats, ContainerStatsResponse, BeatStatus, BeatTask, BeatDbScript } from '../api/system'
 import { StatusBadge } from '../components/StatusBadge'
 import { StatCard } from '../components/StatCard'
 import { formatDistanceToNow, subDays, startOfDay, endOfDay } from 'date-fns'
@@ -429,6 +429,30 @@ function SchedulerHealthSection({
   isError: boolean
 }) {
   const { formatDateTime } = useTimezone()
+  const PAGE_SIZE = 10
+  const [page, setPage] = useState(1)
+
+  type SchedRow =
+    | { kind: 'scheduled'; t: BeatTask }
+    | { kind: 'missing'; s: BeatDbScript }
+  const rows: SchedRow[] = beat
+    ? [
+        ...beat.scheduled.map((t): SchedRow => ({ kind: 'scheduled', t })),
+        ...beat.missing_in_beat.map((s): SchedRow => ({ kind: 'missing', s })),
+      ]
+    : []
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const pageRows = rows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  const renderTag = (tag: string | null) =>
+    tag ? (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-violet/10 text-violet text-[11px] font-[700]">
+        {tag}
+      </span>
+    ) : (
+      <span className="text-ink-3">—</span>
+    )
 
   return (
     <div className="bg-white rounded-xl border border-[rgba(99,112,156,0.12)] p-5">
@@ -498,44 +522,85 @@ function SchedulerHealthSection({
             )}
           </div>
 
-          {beat.scheduled.length === 0 && beat.missing_in_beat.length === 0 ? (
+          {rows.length === 0 ? (
             <p className="text-[12px] text-ink-3">No active cron scripts.</p>
           ) : (
-            <table className="w-full">
-              <thead>
-                <tr className="bg-[rgba(240,242,247,0.6)]">
-                  <th className="text-left px-3 py-2 text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3 rounded-l-lg">Script</th>
-                  <th className="text-left px-3 py-2 text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3">Cron</th>
-                  <th className="text-left px-3 py-2 text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3">Next run (est.)</th>
-                  <th className="text-left px-3 py-2 text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3 rounded-r-lg">Runs</th>
-                </tr>
-              </thead>
-              <tbody>
-                {beat.scheduled.map((t) => (
-                  <tr key={`beat-${t.script_id}`} className="border-t border-[rgba(99,112,156,0.06)]">
-                    <td className="px-3 py-2.5 text-[12.5px] font-[600] text-ink-1">
-                      <Link to={`/scripts/${t.script_id}`} className="hover:text-accent">{t.name}</Link>
-                    </td>
-                    <td className="px-3 py-2.5 text-[12px] font-mono text-ink-2">{t.cron}</td>
-                    <td className="px-3 py-2.5 text-[11.5px] text-ink-3" title={t.next_run_estimate ? formatDateTime(t.next_run_estimate) : ''}>
-                      {t.next_run_estimate ? formatDistanceToNow(parseUTC(t.next_run_estimate), { addSuffix: true }) : '—'}
-                    </td>
-                    <td className="px-3 py-2.5 text-[12px] font-mono text-ink-2">{t.total_run_count}</td>
+            <>
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-[rgba(240,242,247,0.6)]">
+                    <th className="text-left px-3 py-2 text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3 rounded-l-lg">Script</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3">Tag</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3">Cron</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3 rounded-r-lg">Next run (est.)</th>
                   </tr>
-                ))}
-                {beat.missing_in_beat.map((s) => (
-                  <tr key={`missing-${s.script_id}`} className="border-t border-[rgba(99,112,156,0.06)] bg-warning-dim/40">
-                    <td className="px-3 py-2.5 text-[12.5px] font-[600] text-ink-1">
-                      <Link to={`/scripts/${s.script_id}`} className="hover:text-accent">{s.name}</Link>
-                    </td>
-                    <td className="px-3 py-2.5 text-[12px] font-mono text-ink-2">{s.cron}</td>
-                    <td className="px-3 py-2.5 text-[11px] font-[700] text-warning" colSpan={2}>
-                      not picked up by beat
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {pageRows.map((row) =>
+                    row.kind === 'scheduled' ? (
+                      <tr key={`beat-${row.t.script_id}`} className="border-t border-[rgba(99,112,156,0.06)]">
+                        <td className="px-3 py-2.5 text-[12.5px] font-[600] text-ink-1">
+                          <Link to={`/scripts/${row.t.script_id}`} className="hover:text-accent">{row.t.name}</Link>
+                        </td>
+                        <td className="px-3 py-2.5">{renderTag(row.t.tag)}</td>
+                        <td className="px-3 py-2.5 text-[12px] font-mono text-ink-2">{row.t.cron}</td>
+                        <td className="px-3 py-2.5 text-[11.5px] text-ink-3" title={row.t.next_run_estimate ? formatDateTime(row.t.next_run_estimate) : ''}>
+                          {row.t.next_run_estimate ? formatDistanceToNow(parseUTC(row.t.next_run_estimate), { addSuffix: true }) : '—'}
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr key={`missing-${row.s.script_id}`} className="border-t border-[rgba(99,112,156,0.06)] bg-warning-dim/40">
+                        <td className="px-3 py-2.5 text-[12.5px] font-[600] text-ink-1">
+                          <Link to={`/scripts/${row.s.script_id}`} className="hover:text-accent">{row.s.name}</Link>
+                        </td>
+                        <td className="px-3 py-2.5">{renderTag(row.s.tag)}</td>
+                        <td className="px-3 py-2.5 text-[12px] font-mono text-ink-2">{row.s.cron}</td>
+                        <td className="px-3 py-2.5 text-[11px] font-[700] text-warning">
+                          not picked up by beat
+                        </td>
+                      </tr>
+                    )
+                  )}
+                </tbody>
+              </table>
+
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-3">
+                  <span className="text-[12px] text-ink-3">
+                    {rows.length} cron scripts · page {safePage} of {totalPages}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setPage(Math.max(1, safePage - 1))}
+                      disabled={safePage === 1}
+                      className="p-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] bg-white text-ink-2 hover:text-ink-1 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p)}
+                        className={`min-w-[30px] h-[30px] rounded-lg border text-[12px] font-[700] transition-colors ${
+                          safePage === p
+                            ? 'bg-violet text-white border-violet'
+                            : 'bg-white text-ink-2 border-[rgba(99,112,156,0.18)] hover:text-ink-1'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => setPage(Math.min(totalPages, safePage + 1))}
+                      disabled={safePage === totalPages}
+                      className="p-1.5 rounded-lg border border-[rgba(99,112,156,0.18)] bg-white text-ink-2 hover:text-ink-1 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

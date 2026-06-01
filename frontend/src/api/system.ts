@@ -68,6 +68,7 @@ export interface ContainerLogsResponse {
 export interface BeatTask {
   script_id: number
   name: string
+  tag: string | null
   cron: string
   last_run_at: string | null
   next_run_estimate: string | null
@@ -77,6 +78,7 @@ export interface BeatTask {
 export interface BeatDbScript {
   script_id: number
   name: string
+  tag: string | null
   cron: string
 }
 

@@ -290,6 +290,7 @@ class DatabaseScheduler(PersistentScheduler):
                 tasks.append({
                     "script_id": script.id,
                     "name": script.name,
+                    "tag": script.tag,
                     "cron": script.cron_expression,
                     "last_run_at": last_run.isoformat() if last_run else None,
                     "next_run_estimate": next_run,
