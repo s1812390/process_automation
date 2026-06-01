@@ -65,10 +65,41 @@ export interface ContainerLogsResponse {
   lines: string[]
 }
 
+export interface BeatTask {
+  script_id: number
+  name: string
+  cron: string
+  last_run_at: string | null
+  next_run_estimate: string | null
+  total_run_count: number
+}
+
+export interface BeatDbScript {
+  script_id: number
+  name: string
+  cron: string
+}
+
+export interface BeatStatus {
+  beat_alive: boolean
+  last_heartbeat: string | null
+  heartbeat_age_sec: number | null
+  in_sync: boolean
+  snapshot_updated_at: string | null
+  timezone: string | null
+  beat_count: number
+  db_count: number
+  scheduled: BeatTask[]
+  db_expected: BeatDbScript[]
+  missing_in_beat: BeatDbScript[]
+  stale_in_beat: BeatTask[]
+}
+
 export const systemApi = {
   getStats: () => client.get<SystemStats>('/system/stats').then(r => r.data),
   getFastStats: () => client.get<FastStats>('/system/fast-stats').then(r => r.data),
   getContainerStats: () => client.get<ContainerStatsResponse>('/system/container-stats').then(r => r.data),
   getContainerLogs: (name: string, tail = 200) =>
     client.get<ContainerLogsResponse>(`/system/container-logs/${encodeURIComponent(name)}`, { params: { tail } }).then(r => r.data),
+  getBeatStatus: () => client.get<BeatStatus>('/system/beat-status').then(r => r.data),
 }

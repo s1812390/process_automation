@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Code2, Play, CheckCircle, XCircle, AlertTriangle, Cpu, HardDrive, Container, Activity, X, Terminal } from 'lucide-react'
+import { Code2, Play, CheckCircle, XCircle, AlertTriangle, Cpu, HardDrive, Container, Activity, X, Terminal, CalendarClock } from 'lucide-react'
 import { runsApi } from '../api/runs'
 import { scriptsApi } from '../api/scripts'
-import { systemApi, FastStats, ContainerStatsResponse } from '../api/system'
+import { systemApi, FastStats, ContainerStatsResponse, BeatStatus } from '../api/system'
 import { StatusBadge } from '../components/StatusBadge'
 import { StatCard } from '../components/StatCard'
 import { formatDistanceToNow, subDays, startOfDay, endOfDay } from 'date-fns'
@@ -419,6 +419,130 @@ function SystemHealthSection({
   )
 }
 
+function SchedulerHealthSection({
+  beat,
+  loading,
+  isError,
+}: {
+  beat?: BeatStatus
+  loading: boolean
+  isError: boolean
+}) {
+  const { formatDateTime } = useTimezone()
+
+  return (
+    <div className="bg-white rounded-xl border border-[rgba(99,112,156,0.12)] p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <CalendarClock className="w-4 h-4 text-accent" />
+        <h3 className="text-[13.5px] font-[800] text-ink-1">Scheduler (Cron)</h3>
+        {!loading && beat && (
+          <span
+            className={`ml-auto inline-flex items-center gap-1.5 text-[11px] font-[700] px-2.5 py-0.5 rounded-full ${
+              beat.beat_alive ? 'bg-success-dim text-success' : 'bg-danger-dim text-danger'
+            }`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${beat.beat_alive ? 'bg-success pulse-dot' : 'bg-danger'}`} />
+            {beat.beat_alive ? 'Beat running' : 'Beat down'}
+          </span>
+        )}
+      </div>
+
+      {loading || !beat ? (
+        <div className="space-y-2">
+          <SkeletonBlock className="h-10" />
+          <SkeletonBlock className="h-10" />
+        </div>
+      ) : isError ? (
+        <p className="text-[12px] text-ink-3">Failed to load scheduler status.</p>
+      ) : (
+        <>
+          {/* Beat is not ticking — cron is effectively dead */}
+          {!beat.beat_alive && (
+            <div className="flex items-start gap-2 mb-3 p-3 bg-danger-dim rounded-lg border border-danger/20">
+              <AlertTriangle className="w-4 h-4 text-danger flex-shrink-0 mt-0.5" />
+              <div className="text-[12px] text-danger">
+                <span className="font-[700]">celery-beat is not ticking.</span> Scheduled
+                cron jobs will not fire.{' '}
+                {beat.last_heartbeat
+                  ? `Last heartbeat ${beat.heartbeat_age_sec != null ? `${Math.round(beat.heartbeat_age_sec)}s ago` : formatDateTime(beat.last_heartbeat)}.`
+                  : 'No heartbeat seen at all.'}{' '}
+                Try <span className="font-mono">docker compose restart celery-beat</span>.
+              </div>
+            </div>
+          )}
+
+          {/* Beat alive but its schedule drifts from the DB */}
+          {beat.beat_alive && !beat.in_sync && (
+            <div className="flex items-start gap-2 mb-3 p-3 bg-warning-dim rounded-lg border border-warning/20">
+              <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+              <div className="text-[12px] text-warning">
+                <span className="font-[700]">Schedule out of sync.</span>{' '}
+                {beat.missing_in_beat.length > 0 && `${beat.missing_in_beat.length} active cron script(s) not yet picked up by beat. `}
+                {beat.stale_in_beat.length > 0 && `${beat.stale_in_beat.length} stale entry(ies) still in beat. `}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center gap-4 mb-3 text-[11.5px] text-ink-3">
+            <span>
+              <span className="font-[700] text-ink-1">{beat.beat_count}</span> in beat
+            </span>
+            <span>
+              <span className="font-[700] text-ink-1">{beat.db_count}</span> active in DB
+            </span>
+            {beat.timezone && <span>tz: <span className="font-mono">{beat.timezone}</span></span>}
+            {beat.snapshot_updated_at && (
+              <span className="ml-auto" title={formatDateTime(beat.snapshot_updated_at)}>
+                snapshot {formatDistanceToNow(parseUTC(beat.snapshot_updated_at), { addSuffix: true })}
+              </span>
+            )}
+          </div>
+
+          {beat.scheduled.length === 0 && beat.missing_in_beat.length === 0 ? (
+            <p className="text-[12px] text-ink-3">No active cron scripts.</p>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="bg-[rgba(240,242,247,0.6)]">
+                  <th className="text-left px-3 py-2 text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3 rounded-l-lg">Script</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3">Cron</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3">Next run (est.)</th>
+                  <th className="text-left px-3 py-2 text-[10px] font-[700] uppercase tracking-[0.8px] text-ink-3 rounded-r-lg">Runs</th>
+                </tr>
+              </thead>
+              <tbody>
+                {beat.scheduled.map((t) => (
+                  <tr key={`beat-${t.script_id}`} className="border-t border-[rgba(99,112,156,0.06)]">
+                    <td className="px-3 py-2.5 text-[12.5px] font-[600] text-ink-1">
+                      <Link to={`/scripts/${t.script_id}`} className="hover:text-accent">{t.name}</Link>
+                    </td>
+                    <td className="px-3 py-2.5 text-[12px] font-mono text-ink-2">{t.cron}</td>
+                    <td className="px-3 py-2.5 text-[11.5px] text-ink-3" title={t.next_run_estimate ? formatDateTime(t.next_run_estimate) : ''}>
+                      {t.next_run_estimate ? formatDistanceToNow(parseUTC(t.next_run_estimate), { addSuffix: true }) : '—'}
+                    </td>
+                    <td className="px-3 py-2.5 text-[12px] font-mono text-ink-2">{t.total_run_count}</td>
+                  </tr>
+                ))}
+                {beat.missing_in_beat.map((s) => (
+                  <tr key={`missing-${s.script_id}`} className="border-t border-[rgba(99,112,156,0.06)] bg-warning-dim/40">
+                    <td className="px-3 py-2.5 text-[12.5px] font-[600] text-ink-1">
+                      <Link to={`/scripts/${s.script_id}`} className="hover:text-accent">{s.name}</Link>
+                    </td>
+                    <td className="px-3 py-2.5 text-[12px] font-mono text-ink-2">{s.cron}</td>
+                    <td className="px-3 py-2.5 text-[11px] font-[700] text-warning" colSpan={2}>
+                      not picked up by beat
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const queryClient = useQueryClient()
   const { formatDateTime } = useTimezone()
@@ -464,6 +588,13 @@ export default function Dashboard() {
   const { data: containerStats, isLoading: containerStatsLoading } = useQuery({
     queryKey: ['system', 'container-stats'],
     queryFn: systemApi.getContainerStats,
+    refetchInterval: 15000,
+    retry: 1,
+  })
+
+  const { data: beatStatus, isLoading: beatStatusLoading, isError: beatStatusError } = useQuery({
+    queryKey: ['system', 'beat-status'],
+    queryFn: systemApi.getBeatStatus,
     refetchInterval: 15000,
     retry: 1,
   })
@@ -599,6 +730,16 @@ export default function Dashboard() {
           </div>
         </section>
       )}
+
+      {/* Scheduler */}
+      <section>
+        <h2 className="text-[14.5px] font-[800] text-ink-1 mb-3">Scheduler</h2>
+        <SchedulerHealthSection
+          beat={beatStatus}
+          loading={beatStatusLoading}
+          isError={beatStatusError}
+        />
+      </section>
 
       {/* System Health */}
       <section>
